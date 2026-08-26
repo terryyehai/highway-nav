@@ -89,7 +89,7 @@ export default function App() {
     };
   }, [geoProvider, recEnabled, recorder.onFix]);
 
-  const { state, geoError, lowPowerMode, manualTopoSwitch, consumeAnnouncements } =
+  const { state, geoError, lowPowerMode, manualTopoSwitch, consumeAnnouncements, diag } =
     useHighwayTracker(topo, trackedProvider, started);
 
   if (import.meta.env.DEV) {
@@ -167,6 +167,7 @@ export default function App() {
           geoError={geoError}
           routes={routes}
           onTopoSwitch={manualTopoSwitch}
+          diag={diag}
         />
         {SimPanel}
         {recEnabled && <RecorderPanel rec={recorder} />}

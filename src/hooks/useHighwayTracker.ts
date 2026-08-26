@@ -40,6 +40,22 @@ function loadSaved(): SavedState | null {
 
 export type GeoErrorKind = 'PERMISSION_DENIED' | 'UNAVAILABLE' | null;
 
+/** 畫面可見的診斷資訊：問題發生在真實裝置上時，讓使用者截圖回報即可精準定位原因 */
+export interface TrackerDiagnostics {
+  /** watchPosition 被呼叫（含重新訂閱）的次數 */
+  wpCalls: number;
+  /** 收到過幾次成功定位回呼 */
+  fixCount: number;
+  /** 收到過幾次錯誤回呼 */
+  errorCount: number;
+  lastError: { code: number; message: string } | null;
+  /** navigator.permissions API 查得的定位權限狀態；瀏覽器不支援則為 'unsupported' */
+  permission: 'granted' | 'denied' | 'prompt' | 'unsupported' | 'checking';
+  accuracyMode: 'high' | 'low';
+  /** 已等待秒數（僅在 INIT 階段累計） */
+  elapsedSec: number;
+}
+
 export function useHighwayTracker(
   topo: FreewayTopo,
   geoProvider: GeoProvider,
@@ -63,6 +79,40 @@ export function useHighwayTracker(
   const lowSpeedStreakRef = useRef(0);
   const [lowPowerMode, setLowPowerMode] = useState(false);
   const [accuracyMode, setAccuracyMode] = useState<'high' | 'low'>('high');
+  const [diag, setDiag] = useState<TrackerDiagnostics>({
+    wpCalls: 0,
+    fixCount: 0,
+    errorCount: 0,
+    lastError: null,
+    permission: 'checking',
+    accuracyMode: 'high',
+    elapsedSec: 0,
+  });
+
+  // 定位權限狀態查詢（僅供畫面顯示診斷用，不影響追蹤邏輯）
+  useEffect(() => {
+    if (!active) return;
+    const nav = navigator as Navigator & {
+      permissions?: { query(desc: { name: string }): Promise<PermissionStatus> };
+    };
+    if (!nav.permissions) {
+      setDiag((d) => ({ ...d, permission: 'unsupported' }));
+      return;
+    }
+    let status: PermissionStatus | null = null;
+    const onChange = () => {
+      if (status) setDiag((d) => ({ ...d, permission: status!.state as TrackerDiagnostics['permission'] }));
+    };
+    nav.permissions
+      .query({ name: 'geolocation' })
+      .then((s) => {
+        status = s;
+        setDiag((d) => ({ ...d, permission: s.state as TrackerDiagnostics['permission'] }));
+        s.addEventListener('change', onChange);
+      })
+      .catch(() => setDiag((d) => ({ ...d, permission: 'unsupported' })));
+    return () => status?.removeEventListener('change', onChange);
+  }, [active]);
 
   const dispatch = useCallback(
     (event: GeoEvent) => {
@@ -79,6 +129,7 @@ export function useHighwayTracker(
 
     const onFix = (fix: GeoFix) => {
       setGeoError(null);
+      setDiag((d) => ({ ...d, fixCount: d.fixCount + 1 }));
       dispatch({ type: 'FIX', fix });
       // 低速偵測（僅在正常追蹤中計數；INIT/失配期間速度為 0 不得誤觸省電）
       if (stateRef.current.phase !== 'TRACKING') {
@@ -97,11 +148,13 @@ export function useHighwayTracker(
     const onError = (err: { code: number; message: string }) => {
       dispatch({ type: 'GEO_ERROR', code: err.code });
       setGeoError(err.code === 1 ? 'PERMISSION_DENIED' : 'UNAVAILABLE');
+      setDiag((d) => ({ ...d, errorCount: d.errorCount + 1, lastError: err }));
     };
 
     if (lowPowerMode) {
       // 省電模式：每 30s 短暫開啟 watch 取一筆
       const pollOnce = () => {
+        setDiag((d) => ({ ...d, wpCalls: d.wpCalls + 1 }));
         const id = geoProvider.watchPosition(
           (fix) => {
             geoProvider.clearWatch(id);
@@ -114,6 +167,7 @@ export function useHighwayTracker(
       pollOnce();
       pollTimer = setInterval(pollOnce, LOW_POWER_POLL_MS);
     } else {
+      setDiag((d) => ({ ...d, wpCalls: d.wpCalls + 1, accuracyMode }));
       watchId = geoProvider.watchPosition(onFix, onError, {
         enableHighAccuracy: accuracyMode === 'high',
         maximumAge: 1000,
@@ -135,6 +189,10 @@ export function useHighwayTracker(
     const startedAt = Date.now();
     let triggered = false;
     const id = setInterval(() => {
+      const elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
+      if (stateRef.current.phase === 'INIT' && !stateRef.current.lastFix) {
+        setDiag((d) => (d.elapsedSec === elapsedSec ? d : { ...d, elapsedSec }));
+      }
       if (triggered) return;
       if (stateRef.current.phase !== 'INIT' || stateRef.current.lastFix) return;
       if (Date.now() - startedAt < FIRST_FIX_WATCHDOG_MS) return;
@@ -192,5 +250,5 @@ export function useHighwayTracker(
     [dispatch],
   );
 
-  return { state, geoError, lowPowerMode, manualTopoSwitch, consumeAnnouncements };
+  return { state, geoError, lowPowerMode, manualTopoSwitch, consumeAnnouncements, diag };
 }

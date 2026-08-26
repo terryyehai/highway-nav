@@ -2,15 +2,41 @@
 
 import { AnimatePresence } from 'framer-motion';
 import type { RouteGeometry, TrackerState } from '../types';
-import type { GeoErrorKind } from '../hooks/useHighwayTracker';
+import type { GeoErrorKind, TrackerDiagnostics } from '../hooks/useHighwayTracker';
 import { FacilityCard } from './FacilityCard';
 import { TopoSwitch } from './TopoSwitch';
 
-function StatusScreen({ title, detail }: { title: string; detail?: string }) {
+function DiagPanel({ diag }: { diag: TrackerDiagnostics }) {
+  return (
+    <div className="mt-4 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left font-mono text-[11px] leading-relaxed text-white/40">
+      <div>已等待 {diag.elapsedSec}s ／ 權限：{diag.permission}</div>
+      <div>
+        watchPosition 呼叫 {diag.wpCalls} 次／成功 {diag.fixCount} 次／錯誤 {diag.errorCount} 次／精度：
+        {diag.accuracyMode === 'high' ? '高' : '低'}
+      </div>
+      {diag.lastError && (
+        <div>
+          最後錯誤：code={diag.lastError.code} {diag.lastError.message}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusScreen({
+  title,
+  detail,
+  diag,
+}: {
+  title: string;
+  detail?: string;
+  diag?: TrackerDiagnostics;
+}) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
       <div className="text-3xl font-bold text-white">{title}</div>
       {detail && <div className="text-base text-white/60">{detail}</div>}
+      {diag && <DiagPanel diag={diag} />}
     </div>
   );
 }
@@ -20,11 +46,13 @@ export function HighwayDashboard({
   geoError,
   routes,
   onTopoSwitch,
+  diag,
 }: {
   state: TrackerState;
   geoError: GeoErrorKind;
   routes: RouteGeometry[];
   onTopoSwitch: (toRouteId: string) => void;
+  diag: TrackerDiagnostics;
 }) {
   const route = routes.find((r) => r.id === state.currentRouteId);
   const dirLabel =
@@ -39,6 +67,7 @@ export function HighwayDashboard({
       <StatusScreen
         title="無法取得定位權限"
         detail="請至瀏覽器設定開啟定位權限後重新載入"
+        diag={diag}
       />
     );
   }
@@ -52,12 +81,13 @@ export function HighwayDashboard({
             ? '室內或地下室不易收到衛星訊號，請移至戶外或靠近窗邊，行駛於國道上即可自動定位'
             : '等待 GPS 訊號'
         }
+        diag={diag}
       />
     );
   }
 
   if (state.phase === 'SIGNAL_LOST') {
-    return <StatusScreen title="GPS 訊號遺失" detail="收訊恢復後將自動繼續" />;
+    return <StatusScreen title="GPS 訊號遺失" detail="收訊恢復後將自動繼續" diag={diag} />;
   }
 
   if (state.phase === 'OFF_HIGHWAY') {
