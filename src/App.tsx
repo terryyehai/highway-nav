@@ -11,6 +11,7 @@ import { HighwayDashboard } from './components/HighwayDashboard';
 import { IOSInstallPrompt } from './components/IOSInstallPrompt';
 import { RecorderPanel, useTrackRecorder } from './dev/TrackRecorder';
 import { PullToRefresh } from './components/PullToRefresh';
+import { VersionInfoBar } from './components/VersionInfoBar';
 
 const topo = topoJson as unknown as FreewayTopo;
 
@@ -133,45 +134,52 @@ export default function App() {
 
   if (!started) {
     return (
-      <PullToRefresh>
-        <div className="flex min-h-dvh flex-col items-center justify-center gap-8 bg-neutral-950 p-8">
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-white">台灣國道即時導航</h1>
-            <p className="mt-3 max-w-xs text-sm leading-relaxed text-white/50">
-              自動顯示前方交流道與服務區的距離與抵達時間。
-              行駛中請專注路況，本程式僅供輔助參考。
-            </p>
+      <>
+        <PullToRefresh>
+          <div className="flex min-h-dvh flex-col items-center justify-center gap-8 bg-signboard p-8">
+            <div className="text-center">
+              <h1 className="text-3xl font-bold text-highway-green">台灣國道即時導航</h1>
+              <p className="mt-3 max-w-xs text-sm leading-relaxed text-highway-green/60">
+                自動顯示前方交流道與服務區的距離與抵達時間。
+                行駛中請專注路況，本程式僅供輔助參考。
+              </p>
+            </div>
+            <button
+              onClick={start}
+              className="rounded-3xl bg-highway-green px-16 py-6 text-3xl font-bold text-white shadow-lg shadow-highway-green/25 active:scale-95"
+            >
+              開始導航
+            </button>
+            {!wakeLock.supported && (
+              <p className="text-xs text-shield-red/80">
+                此瀏覽器不支援螢幕長亮，請手動關閉自動鎖定
+              </p>
+            )}
+            <IOSInstallPrompt />
           </div>
-          <button
-            onClick={start}
-            className="rounded-3xl bg-emerald-500 px-16 py-6 text-3xl font-bold text-black shadow-lg shadow-emerald-500/25 active:scale-95"
-          >
-            開始導航
-          </button>
-          {!wakeLock.supported && (
-            <p className="text-xs text-amber-400/80">
-              此瀏覽器不支援螢幕長亮，請手動關閉自動鎖定
-            </p>
-          )}
-          <IOSInstallPrompt />
-        </div>
-      </PullToRefresh>
+        </PullToRefresh>
+        <VersionInfoBar diag={diag} state={state} />
+      </>
     );
   }
 
   return (
-    <PullToRefresh>
-      <div ref={shiftRef} className="flex min-h-dvh flex-col bg-neutral-950">
-        <HighwayDashboard
-          state={state}
-          geoError={geoError}
-          routes={routes}
-          onTopoSwitch={manualTopoSwitch}
-          diag={diag}
-        />
-        {SimPanel}
-        {recEnabled && <RecorderPanel rec={recorder} />}
-      </div>
-    </PullToRefresh>
+    <>
+      <PullToRefresh>
+        <div ref={shiftRef} className="flex min-h-dvh flex-col bg-signboard">
+          <HighwayDashboard
+            state={state}
+            geoError={geoError}
+            routes={routes}
+            onTopoSwitch={manualTopoSwitch}
+          />
+        </div>
+      </PullToRefresh>
+      {/* fixed 定位元件需在 PullToRefresh/OLED shiftRef 的 transform 容器之外，
+          否則 transform 祖先會劫持 fixed 的定位基準（脫離視窗貼齊） */}
+      {SimPanel}
+      {recEnabled && <RecorderPanel rec={recorder} />}
+      <VersionInfoBar diag={diag} state={state} />
+    </>
   );
 }

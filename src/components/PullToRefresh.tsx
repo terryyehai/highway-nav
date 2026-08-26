@@ -74,7 +74,7 @@ export function PullToRefresh({ children }: { children: React.ReactNode }) {
   return (
     <div ref={containerRef} className="relative flex min-h-dvh flex-col overflow-y-auto">
       <div
-        className="pointer-events-none absolute left-0 right-0 top-0 flex items-center justify-center overflow-hidden text-sm font-bold text-white/70 transition-[height] duration-150"
+        className="pointer-events-none absolute left-0 right-0 top-0 flex items-center justify-center overflow-hidden text-sm font-bold text-highway-green/70 transition-[height] duration-150"
         style={{ height: pull }}
       >
         {refreshing ? '更新中…' : pull >= TRIGGER_DISTANCE ? '放開以刷新' : '下拉刷新'}

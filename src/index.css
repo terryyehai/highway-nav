@@ -1,8 +1,18 @@
 @import 'tailwindcss';
 
+/* 台灣公路指標風格 Design Token：暖米白底 + 公路深綠，仿實體告示牌配色 */
+@theme {
+  --color-signboard: #f5f3e7;
+  --color-signboard-line: #d1d5c5;
+  --color-highway-green: #0b4a25;
+  --color-highway-green-deep: #085829;
+  --color-shield-blue: #1b3a6b;
+  --color-shield-red: #b3121f;
+}
+
 html,
 body {
-  background: #0a0a0a;
+  background: var(--color-signboard);
   overscroll-behavior: none;
   -webkit-user-select: none;
   user-select: none;

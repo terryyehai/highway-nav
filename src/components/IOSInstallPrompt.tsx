@@ -20,13 +20,13 @@ export function IOSInstallPrompt() {
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
           transition={{ type: 'spring', stiffness: 260, damping: 26 }}
-          className="fixed inset-x-0 bottom-0 z-40 rounded-t-3xl border-t border-white/15 bg-neutral-900/95 p-6 pb-8 backdrop-blur-xl"
+          className="fixed inset-x-0 bottom-0 z-40 rounded-t-3xl border-t border-signboard-line bg-signboard p-6 pb-8 shadow-[0_-8px_24px_rgba(0,0,0,0.1)]"
         >
-          <div className="mb-3 text-lg font-bold text-white">安裝到主畫面</div>
-          <ol className="space-y-2 text-sm text-white/80">
+          <div className="mb-3 text-lg font-bold text-highway-green">安裝到主畫面</div>
+          <ol className="space-y-2 text-sm text-highway-green/80">
             <li>
               1. 點選 Safari 下方的分享按鈕{' '}
-              <svg viewBox="0 0 24 24" className="inline h-5 w-5 fill-sky-400">
+              <svg viewBox="0 0 24 24" className="inline h-5 w-5 fill-shield-blue">
                 <path d="M12 2 8 6h3v9h2V6h3l-4-4zM5 10v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10h-2v10H7V10H5z" />
               </svg>
             </li>
@@ -35,7 +35,7 @@ export function IOSInstallPrompt() {
           </ol>
           <button
             onClick={close}
-            className="mt-4 w-full rounded-xl bg-white/10 py-3 font-bold text-white"
+            className="mt-4 w-full rounded-xl bg-highway-green py-3 font-bold text-white"
           >
             我知道了
           </button>

@@ -23,15 +23,13 @@ export function TopoSwitch({
   return (
     <button
       onClick={() => onSwitch(paired.id)}
-      className="flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 py-3 text-lg font-bold text-white backdrop-blur-md active:bg-white/25"
+      className="flex items-center gap-2 rounded-xl border border-highway-green bg-white/50 px-4 py-3 text-lg font-bold text-highway-green active:bg-white/80"
     >
-      <span className={isElevated ? 'text-amber-300' : 'text-emerald-300'}>
-        {isElevated ? '高架' : '平面'}
-      </span>
-      <span className="text-white/40">⇄</span>
-      <span className="text-white/50">{isElevated ? '平面' : '高架'}</span>
+      <span>{isElevated ? '高架' : '平面'}</span>
+      <span className="text-highway-green/40">⇄</span>
+      <span className="text-highway-green/50">{isElevated ? '平面' : '高架'}</span>
       {lockedRouteId && (
-        <span className="ml-1 rounded bg-amber-500/25 px-1.5 py-0.5 text-xs text-amber-300">
+        <span className="ml-1 rounded bg-shield-red/15 px-1.5 py-0.5 text-xs text-shield-red">
           手動鎖定
         </span>
       )}
