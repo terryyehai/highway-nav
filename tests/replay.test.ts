@@ -133,6 +133,25 @@ describe('駛離國道 → OFF_HIGHWAY → 重新進入', () => {
   });
 });
 
+describe('首次啟動且不在國道附近（室內/離國道甚遠）', () => {
+  it('連續 5 筆失配後轉 OFF_HIGHWAY，不得死鎖於 INIT', () => {
+    const ctx = createTrackerContext(topo);
+    let state = initialTrackerState();
+    expect(state.phase).toBe('INIT');
+
+    // GPS 正常運作、持續有成功定位，但位置離所有國道都很遠（例如室內測試）
+    const base = 1700020000000;
+    for (let i = 0; i < 6; i++) {
+      state = trackerReducer(ctx, state, {
+        type: 'FIX',
+        fix: { lat: 24.15, lng: 120.68, speed: 0, heading: null, accuracy: 20, timestamp: base + i * 1000 },
+      });
+    }
+    expect(state.phase).toBe('OFF_HIGHWAY');
+    expect(state.upcomingFacilities).toEqual([]);
+  });
+});
+
 describe('手動高架/平面切換 10km 封鎖', () => {
   it('切換後 manualTopoLock 生效，行駛超過 10km 自動解除', () => {
     const ctx = createTrackerContext(topo);

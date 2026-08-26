@@ -179,7 +179,10 @@ function handleFix(ctx: TrackerContext, prev: TrackerState, fix: GeoFix): Tracke
           offMatchStreak: 0,
         };
       }
-      if (state.phase === 'TRACKING') {
+      if (state.phase === 'TRACKING' || (state.phase === 'INIT' && !state.currentRouteId)) {
+        // 首次啟動且持續收不到任何國道匹配（不在國道附近）：GPS 本身正常，
+        // 只是位置不在國道範圍內，轉 OFF_HIGHWAY 讓 UI 呈現「未在國道上」
+        // 而非讓 phase 永遠停在 INIT 死鎖
         return {
           ...state,
           phase: 'OFF_HIGHWAY',
