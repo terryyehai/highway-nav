@@ -10,6 +10,7 @@ import { useHighwayTTS } from './hooks/useHighwayTTS';
 import { HighwayDashboard } from './components/HighwayDashboard';
 import { IOSInstallPrompt } from './components/IOSInstallPrompt';
 import { RecorderPanel, useTrackRecorder } from './dev/TrackRecorder';
+import { PullToRefresh } from './components/PullToRefresh';
 
 const topo = topoJson as unknown as FreewayTopo;
 
@@ -132,40 +133,44 @@ export default function App() {
 
   if (!started) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-8 bg-neutral-950 p-8">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-white">台灣國道即時導航</h1>
-          <p className="mt-3 max-w-xs text-sm leading-relaxed text-white/50">
-            自動顯示前方交流道與服務區的距離與抵達時間。
-            行駛中請專注路況，本程式僅供輔助參考。
-          </p>
+      <PullToRefresh>
+        <div className="flex min-h-dvh flex-col items-center justify-center gap-8 bg-neutral-950 p-8">
+          <div className="text-center">
+            <h1 className="text-3xl font-bold text-white">台灣國道即時導航</h1>
+            <p className="mt-3 max-w-xs text-sm leading-relaxed text-white/50">
+              自動顯示前方交流道與服務區的距離與抵達時間。
+              行駛中請專注路況，本程式僅供輔助參考。
+            </p>
+          </div>
+          <button
+            onClick={start}
+            className="rounded-3xl bg-emerald-500 px-16 py-6 text-3xl font-bold text-black shadow-lg shadow-emerald-500/25 active:scale-95"
+          >
+            開始導航
+          </button>
+          {!wakeLock.supported && (
+            <p className="text-xs text-amber-400/80">
+              此瀏覽器不支援螢幕長亮，請手動關閉自動鎖定
+            </p>
+          )}
+          <IOSInstallPrompt />
         </div>
-        <button
-          onClick={start}
-          className="rounded-3xl bg-emerald-500 px-16 py-6 text-3xl font-bold text-black shadow-lg shadow-emerald-500/25 active:scale-95"
-        >
-          開始導航
-        </button>
-        {!wakeLock.supported && (
-          <p className="text-xs text-amber-400/80">
-            此瀏覽器不支援螢幕長亮，請手動關閉自動鎖定
-          </p>
-        )}
-        <IOSInstallPrompt />
-      </div>
+      </PullToRefresh>
     );
   }
 
   return (
-    <div ref={shiftRef} className="flex min-h-dvh flex-col bg-neutral-950">
-      <HighwayDashboard
-        state={state}
-        geoError={geoError}
-        routes={routes}
-        onTopoSwitch={manualTopoSwitch}
-      />
-      {SimPanel}
-      {recEnabled && <RecorderPanel rec={recorder} />}
-    </div>
+    <PullToRefresh>
+      <div ref={shiftRef} className="flex min-h-dvh flex-col bg-neutral-950">
+        <HighwayDashboard
+          state={state}
+          geoError={geoError}
+          routes={routes}
+          onTopoSwitch={manualTopoSwitch}
+        />
+        {SimPanel}
+        {recEnabled && <RecorderPanel rec={recorder} />}
+      </div>
+    </PullToRefresh>
   );
 }

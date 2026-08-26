@@ -14,9 +14,14 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // 停用自動注入的陽春註冊腳本，改在 main.tsx 手動註冊以取得更新控制權
+      injectRegister: null,
       workbox: {
         // topo.json 打包進 JS bundle，precache 全部產物即涵蓋離線需求
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        // 新 SW 立即接管，不等待分頁全部關閉——否則部署的修正無法送達已開啟的分頁
+        skipWaiting: true,
+        clientsClaim: true,
       },
       manifest: {
         name: '台灣國道即時導航',
