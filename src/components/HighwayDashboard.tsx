@@ -19,9 +19,9 @@ function StatusScreen({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
-      <div className="text-4xl font-bold text-highway-green">{title}</div>
-      {detail && <div className="text-lg text-highway-green/60">{detail}</div>}
+    <div className="flex flex-1 flex-col items-center justify-center gap-6 p-8 text-center">
+      <div className="text-7xl font-bold text-highway-green">{title}</div>
+      {detail && <div className="text-3xl text-highway-green/60">{detail}</div>}
       {children}
     </div>
   );
@@ -73,9 +73,9 @@ export function HighwayDashboard({
     // 方向未定，雙向都要顯示：獨立版面（非 StatusScreen 置中留白容器），讓下方面板能真正滿版
     return (
       <div className="flex flex-1 flex-col">
-        <div className="flex flex-col items-center gap-2 px-6 pb-5 pt-10 text-center">
-          <div className="text-4xl font-bold text-highway-green">未在國道上</div>
-          <div className="text-lg text-highway-green/60">進入國道後自動開始導航</div>
+        <div className="flex flex-col items-center gap-3 px-6 pb-5 pt-10 text-center">
+          <div className="text-7xl font-bold text-highway-green">未在國道上</div>
+          <div className="text-3xl text-highway-green/60">進入國道後自動開始導航</div>
         </div>
         {state.nearestHighway ? (
           <NearestHighwayPanel info={state.nearestHighway} routes={routes} />
@@ -92,37 +92,37 @@ export function HighwayDashboard({
     <div className="flex flex-1 flex-col gap-0.5">
       {/* 頂列：路線徽章 / 方向 / 里程 / 車速——與下方設施卡同色系，視覺上連成一整組告示牌 */}
       <div
-        className={`flex items-center justify-between px-4 py-4 ${
+        className={`flex items-center justify-between px-6 py-5 ${
           headerColor ? headerColor.bg : 'bg-highway-green'
         }`}
       >
-        <div className="flex items-center gap-3">
-          {route && <HighwayBadge routeId={route.id} size={48} />}
-          <span className="text-3xl font-bold text-white">{route?.name ?? '—'}</span>
+        <div className="flex items-center gap-4">
+          {route && <HighwayBadge routeId={route.id} size={88} />}
+          <span className="text-5xl font-bold text-white">{route?.name ?? '—'}</span>
           {dirLabel ? (
-            <span className="rounded-lg bg-white/20 px-2.5 py-1 text-xl font-bold text-white">
+            <span className="rounded-lg bg-white/20 px-4 py-1.5 text-3xl font-bold text-white">
               {dirLabel}
             </span>
           ) : (
-            <span className="rounded-lg border border-white/30 px-2.5 py-1 text-base text-white/70">
+            <span className="rounded-lg border border-white/30 px-4 py-1.5 text-xl text-white/70">
               判定方向中
             </span>
           )}
           {state.isDeadReckoning && (
-            <span className="rounded-lg bg-black/25 px-2.5 py-1 text-base font-bold text-white">
+            <span className="rounded-lg bg-black/25 px-4 py-1.5 text-xl font-bold text-white">
               隧道推算中
             </span>
           )}
           {state.isOffline && (
-            <span className="rounded-lg bg-black/25 px-2.5 py-1 text-base text-white">離線</span>
+            <span className="rounded-lg bg-black/25 px-4 py-1.5 text-xl text-white">離線</span>
           )}
         </div>
         <div className="text-right font-mono tabular-nums">
-          <div className="text-2xl font-bold text-white">
+          <div className="text-5xl font-bold text-white">
             {state.currentMileage.toFixed(1)}
-            <span className="text-base text-white/60">K</span>
+            <span className="text-2xl text-white/60">K</span>
           </div>
-          <div className="text-base text-white/70">{Math.round(state.speedKmh)} km/h</div>
+          <div className="text-2xl text-white/70">{Math.round(state.speedKmh)} km/h</div>
         </div>
       </div>
 

@@ -32,13 +32,13 @@ export function FacilityCard({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -24 }}
       transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-      className={`flex items-center gap-4 ${c.bg} ${isNearest ? 'py-6' : 'py-3.5'} px-4`}
+      className={`flex items-center gap-6 ${c.bg} ${isNearest ? 'py-10' : 'py-7'} px-6`}
     >
-      <HighwayBadge routeId={facility.routeId} size={isNearest ? 60 : 38} />
+      <HighwayBadge routeId={facility.routeId} size={isNearest ? 120 : 76} />
       <div className="min-w-0 flex-1">
-        <div className={`text-sm font-bold ${c.textSub}`}>{TYPE_LABEL[facility.type]}</div>
+        <div className={`text-xl font-bold ${c.textSub}`}>{TYPE_LABEL[facility.type]}</div>
         <div
-          className={`truncate font-bold ${c.text} ${isNearest ? 'text-5xl' : 'text-3xl'}`}
+          className={`truncate font-bold ${c.text} ${isNearest ? 'text-8xl' : 'text-6xl'}`}
         >
           {facility.name}
         </div>
@@ -46,16 +46,16 @@ export function FacilityCard({
       <div className="shrink-0 text-right">
         <div
           className={`font-mono font-bold tabular-nums ${c.text} ${
-            isNearest ? 'text-6xl' : 'text-4xl'
+            isNearest ? 'text-9xl' : 'text-7xl'
           }`}
         >
           {facility.distanceKm.toFixed(1)}
-          <span className={`ml-1 text-lg font-normal ${c.textSub}`}>km</span>
+          <span className={`ml-1 text-3xl font-normal ${c.textSub}`}>km</span>
         </div>
-        <div className={`mt-1 font-mono text-xl tabular-nums ${c.textSub}`}>
+        <div className={`mt-1 font-mono text-4xl tabular-nums ${c.textSub}`}>
           {formatEta(facility.etaSeconds)}
           {congested && isNearest && (
-            <span className="ml-2 rounded bg-white/20 px-2 py-0.5 text-sm text-white">
+            <span className="ml-2 rounded bg-white/20 px-3 py-1 text-xl text-white">
               塞車中
             </span>
           )}

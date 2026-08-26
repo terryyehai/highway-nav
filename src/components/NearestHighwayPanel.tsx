@@ -11,7 +11,7 @@ const TYPE_LABEL: Record<UpcomingFacility['type'], string> = {
   junction: '系統交流道',
 };
 
-function LocationIcon() {
+function LocationIcon({ className = 'h-4 w-4' }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -20,7 +20,7 @@ function LocationIcon() {
       strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="h-4 w-4 shrink-0"
+      className={`shrink-0 ${className}`}
       aria-hidden="true"
     >
       <circle cx="12" cy="12" r="3" />
@@ -41,22 +41,22 @@ function DirectionSection({
   const c = routeColorScheme(routeId);
   return (
     <div className={c.bg}>
-      <div className={`px-4 py-2.5 text-lg font-bold ${c.text} ${c.bgSoft}`}>{label}</div>
+      <div className={`px-6 py-4 text-3xl font-bold ${c.text} ${c.bgSoft}`}>{label}</div>
       {facilities.length === 0 ? (
-        <div className={`px-4 py-4 text-base ${c.textSub}`}>無資料</div>
+        <div className={`px-6 py-6 text-2xl ${c.textSub}`}>無資料</div>
       ) : (
         <ul>
           {facilities.map((f, i) => (
             <li
               key={f.id}
-              className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? `border-t ${c.divider}` : ''}`}
+              className={`flex items-center gap-4 px-6 py-5 ${i > 0 ? `border-t ${c.divider}` : ''}`}
             >
-              <HighwayBadge routeId={routeId} size={30} />
+              <HighwayBadge routeId={routeId} size={54} />
               <div className="min-w-0 flex-1">
-                <span className={`mr-1.5 text-xs ${c.textSub}`}>{TYPE_LABEL[f.type]}</span>
-                <span className={`truncate text-xl font-bold ${c.text}`}>{f.name}</span>
+                <span className={`mr-2 text-base ${c.textSub}`}>{TYPE_LABEL[f.type]}</span>
+                <span className={`truncate text-4xl font-bold ${c.text}`}>{f.name}</span>
               </div>
-              <span className={`shrink-0 font-mono text-xl tabular-nums ${c.text}`}>
+              <span className={`shrink-0 font-mono text-4xl tabular-nums ${c.text}`}>
                 {f.distanceKm.toFixed(1)} km
               </span>
             </li>
@@ -77,8 +77,8 @@ export function NearestHighwayPanel({
   const route = routes.find((r) => r.id === info.routeId);
   return (
     <div className="flex w-full flex-1 flex-col">
-      <div className="flex items-center justify-center gap-1.5 pb-4 text-base text-highway-green/60">
-        <LocationIcon />
+      <div className="flex items-center justify-center gap-2 pb-6 text-2xl text-highway-green/60">
+        <LocationIcon className="h-7 w-7" />
         <span>
           距離最近的{route?.name ?? info.routeId} {info.distanceKm.toFixed(1)} 公里
         </span>
