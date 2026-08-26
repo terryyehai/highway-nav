@@ -62,6 +62,7 @@ export function useHighwayTracker(
   stateRef.current = state;
   const lowSpeedStreakRef = useRef(0);
   const [lowPowerMode, setLowPowerMode] = useState(false);
+  const [accuracyMode, setAccuracyMode] = useState<'high' | 'low'>('high');
 
   const dispatch = useCallback(
     (event: GeoEvent) => {
@@ -70,21 +71,13 @@ export function useHighwayTracker(
     [ctx],
   );
 
-  // GPS 訂閱（低速降頻：以重新訂閱週期實現輪詢）
+  // GPS 訂閱（低速降頻：以重新訂閱週期實現輪詢；低精度 fallback 由獨立 watchdog effect 觸發）
   useEffect(() => {
     if (!active) return;
     let watchId: number | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
-    let watchdog: ReturnType<typeof setTimeout> | null = null;
-    let fallbackToLowAccuracy = false;
-
-    const clearWatchdog = () => {
-      if (watchdog !== null) clearTimeout(watchdog);
-      watchdog = null;
-    };
 
     const onFix = (fix: GeoFix) => {
-      clearWatchdog();
       setGeoError(null);
       dispatch({ type: 'FIX', fix });
       // 低速偵測（僅在正常追蹤中計數；INIT/失配期間速度為 0 不得誤觸省電）
@@ -121,31 +114,36 @@ export function useHighwayTracker(
       pollOnce();
       pollTimer = setInterval(pollOnce, LOW_POWER_POLL_MS);
     } else {
-      const subscribe = (highAccuracy: boolean) => {
-        watchId = geoProvider.watchPosition(onFix, onError, {
-          enableHighAccuracy: highAccuracy,
-          maximumAge: 1000,
-          timeout: 20000,
-        });
-        // 部分行動瀏覽器不會依 timeout 觸發 onError，自行兜底：逾時仍未拿到第一筆定位
-        // 就視為訊號不佳，並嘗試降級為低精度定位（室內較易靠 WiFi/基地台取得粗略位置）
-        watchdog = setTimeout(() => {
-          setGeoError('UNAVAILABLE');
-          if (highAccuracy && !fallbackToLowAccuracy) {
-            fallbackToLowAccuracy = true;
-            if (watchId !== null) geoProvider.clearWatch(watchId);
-            subscribe(false);
-          }
-        }, FIRST_FIX_WATCHDOG_MS);
-      };
-      subscribe(true);
+      watchId = geoProvider.watchPosition(onFix, onError, {
+        enableHighAccuracy: accuracyMode === 'high',
+        maximumAge: 1000,
+        timeout: 20000,
+      });
     }
     return () => {
-      clearWatchdog();
       if (watchId !== null) geoProvider.clearWatch(watchId);
       if (pollTimer !== null) clearInterval(pollTimer);
     };
-  }, [active, geoProvider, dispatch, lowPowerMode]);
+  }, [active, geoProvider, dispatch, lowPowerMode, accuracyMode]);
+
+  // 逾時兜底：與上方 GPS 訂閱邏輯完全分離的單純 1s 輪詢計時器。
+  // 部分行動瀏覽器（尤其 iOS Safari）watchPosition 的 timeout 參數不可靠，
+  // 不會在拿不到第一筆定位時觸發 onError；用獨立、結構單純的 setInterval
+  // 直接比對經過時間，避免依附在複雜的訂閱/重訂閱邏輯裡而不易驗證正確性。
+  useEffect(() => {
+    if (!active) return;
+    const startedAt = Date.now();
+    let triggered = false;
+    const id = setInterval(() => {
+      if (triggered) return;
+      if (stateRef.current.phase !== 'INIT' || stateRef.current.lastFix) return;
+      if (Date.now() - startedAt < FIRST_FIX_WATCHDOG_MS) return;
+      triggered = true;
+      setGeoError((prev) => (prev === 'PERMISSION_DENIED' ? prev : 'UNAVAILABLE'));
+      setAccuracyMode('low');
+    }, 1000);
+    return () => clearInterval(id);
+  }, [active]);
 
   // 1s TICK：驅動 Dead Reckoning 與訊號遺失偵測
   useEffect(() => {
