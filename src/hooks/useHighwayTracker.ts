@@ -15,6 +15,8 @@ const SESSION_KEY = 'highway-nav-state-v1';
 const LOW_SPEED_KMH = 5;
 const LOW_SPEED_STREAK = 3;
 const LOW_POWER_POLL_MS = 30000;
+/** 部分行動瀏覽器（尤其 iOS Safari）watchPosition 的 timeout 不可靠，需自行兜底偵測逾時 */
+const FIRST_FIX_WATCHDOG_MS = 12000;
 
 interface SavedState {
   routeId: string;
@@ -73,8 +75,16 @@ export function useHighwayTracker(
     if (!active) return;
     let watchId: number | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
+    let fallbackToLowAccuracy = false;
+
+    const clearWatchdog = () => {
+      if (watchdog !== null) clearTimeout(watchdog);
+      watchdog = null;
+    };
 
     const onFix = (fix: GeoFix) => {
+      clearWatchdog();
       setGeoError(null);
       dispatch({ type: 'FIX', fix });
       // 低速偵測（僅在正常追蹤中計數；INIT/失配期間速度為 0 不得誤觸省電）
@@ -111,13 +121,27 @@ export function useHighwayTracker(
       pollOnce();
       pollTimer = setInterval(pollOnce, LOW_POWER_POLL_MS);
     } else {
-      watchId = geoProvider.watchPosition(onFix, onError, {
-        enableHighAccuracy: true,
-        maximumAge: 1000,
-        timeout: 20000,
-      });
+      const subscribe = (highAccuracy: boolean) => {
+        watchId = geoProvider.watchPosition(onFix, onError, {
+          enableHighAccuracy: highAccuracy,
+          maximumAge: 1000,
+          timeout: 20000,
+        });
+        // 部分行動瀏覽器不會依 timeout 觸發 onError，自行兜底：逾時仍未拿到第一筆定位
+        // 就視為訊號不佳，並嘗試降級為低精度定位（室內較易靠 WiFi/基地台取得粗略位置）
+        watchdog = setTimeout(() => {
+          setGeoError('UNAVAILABLE');
+          if (highAccuracy && !fallbackToLowAccuracy) {
+            fallbackToLowAccuracy = true;
+            if (watchId !== null) geoProvider.clearWatch(watchId);
+            subscribe(false);
+          }
+        }, FIRST_FIX_WATCHDOG_MS);
+      };
+      subscribe(true);
     }
     return () => {
+      clearWatchdog();
       if (watchId !== null) geoProvider.clearWatch(watchId);
       if (pollTimer !== null) clearInterval(pollTimer);
     };

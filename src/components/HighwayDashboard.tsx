@@ -47,7 +47,11 @@ export function HighwayDashboard({
     return (
       <StatusScreen
         title="定位中…"
-        detail={geoError === 'UNAVAILABLE' ? 'GPS 訊號不佳，持續嘗試中' : '等待 GPS 訊號'}
+        detail={
+          geoError === 'UNAVAILABLE'
+            ? '室內或地下室不易收到衛星訊號，請移至戶外或靠近窗邊，行駛於國道上即可自動定位'
+            : '等待 GPS 訊號'
+        }
       />
     );
   }
