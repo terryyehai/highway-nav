@@ -14,7 +14,8 @@ import {
   upcomingFacilities,
 } from '../src/core/facilities';
 import { startDeadReckoning, tickDeadReckoning } from '../src/core/deadReckoning';
-import type { Facility } from '../src/types';
+import { getSpeedLimitAtMileage } from '../src/core/speedLimit';
+import type { Facility, RouteGeometry } from '../src/types';
 
 describe('geo', () => {
   it('haversine 台北-高雄約 300km', () => {
@@ -160,5 +161,36 @@ describe('deadReckoning', () => {
     const t0 = 1700000000000;
     const dr = startDeadReckoning(t0, 100, 90);
     expect(tickDeadReckoning(dr, t0 + 181000, 'INCREASING')).toBeNull();
+  });
+});
+
+describe('speedLimit', () => {
+  const route = {
+    speedLimits: [
+      { fromKm: 0, toKm: 10, limit: 110 },
+      { fromKm: 10, toKm: 20, limit: 90 },
+      { fromKm: 20, toKm: 30, limit: 100 },
+    ],
+  } as RouteGeometry;
+
+  it('落在路段內回傳該路段速限', () => {
+    expect(getSpeedLimitAtMileage(route, 5)).toBe(110);
+    expect(getSpeedLimitAtMileage(route, 15)).toBe(90);
+    expect(getSpeedLimitAtMileage(route, 25)).toBe(100);
+  });
+
+  it('落在路段邊界回傳其中一段之速限（交界點兩段皆合理）', () => {
+    expect([90, 110]).toContain(getSpeedLimitAtMileage(route, 10));
+    expect([90, 100]).toContain(getSpeedLimitAtMileage(route, 20));
+  });
+
+  it('超出資料範圍夾附至最近端', () => {
+    expect(getSpeedLimitAtMileage(route, -5)).toBe(110);
+    expect(getSpeedLimitAtMileage(route, 35)).toBe(100);
+  });
+
+  it('路線無速限資料（快速公路）回傳 null', () => {
+    expect(getSpeedLimitAtMileage({} as RouteGeometry, 5)).toBeNull();
+    expect(getSpeedLimitAtMileage(undefined, 5)).toBeNull();
   });
 });

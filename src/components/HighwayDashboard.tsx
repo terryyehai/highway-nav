@@ -7,7 +7,10 @@ import { FacilityCard } from './FacilityCard';
 import { TopoSwitch } from './TopoSwitch';
 import { NearestHighwayPanel } from './NearestHighwayPanel';
 import { HighwayBadge } from './HighwayBadge';
+import { SpeedLimitSign } from './SpeedLimitSign';
+import { CameraAlertBanner } from './CameraAlertBanner';
 import { routeColorScheme } from '../utils/routeColor';
+import { OVER_SPEED_TOLERANCE_KMH } from '../core/speedLimit';
 
 function StatusScreen({
   title,
@@ -88,6 +91,8 @@ export function HighwayDashboard({
 
   // TRACKING：僅呈現當前行進方向，滿版告示牌卡片，與 OFF_HIGHWAY 的雙向瀏覽版面刻意分開設計
   const headerColor = route ? routeColorScheme(route.id) : null;
+  const overLimit =
+    state.speedLimitKmh !== null && state.speedKmh > state.speedLimitKmh + OVER_SPEED_TOLERANCE_KMH;
   return (
     <div className="flex flex-1 flex-col gap-0.5">
       {/* 頂列：路線徽章 / 方向 / 里程 / 車速——與下方設施卡同色系，視覺上連成一整組告示牌 */}
@@ -117,14 +122,33 @@ export function HighwayDashboard({
             <span className="rounded-lg bg-black/25 px-4 py-1.5 text-xl text-white">離線</span>
           )}
         </div>
-        <div className="text-right font-mono tabular-nums">
-          <div className="text-5xl font-bold text-white">
-            {state.currentMileage.toFixed(1)}
-            <span className="text-2xl text-white/60">K</span>
+        <div className="flex items-center gap-4">
+          <div className="text-right font-mono tabular-nums">
+            <div className="text-5xl font-bold text-white">
+              {state.currentMileage.toFixed(1)}
+              <span className="text-2xl text-white/60">K</span>
+            </div>
+            <div
+              className={`inline-flex items-baseline gap-1.5 rounded-lg px-2 ${
+                overLimit ? 'animate-pulse bg-red-600' : ''
+              }`}
+            >
+              <span className="text-4xl font-bold text-white">{Math.round(state.speedKmh)}</span>
+              <span className={`text-xl ${overLimit ? 'text-white/85' : 'text-white/60'}`}>
+                km/h
+              </span>
+            </div>
           </div>
-          <div className="text-2xl text-white/70">{Math.round(state.speedKmh)} km/h</div>
+          {state.speedLimitKmh !== null && <SpeedLimitSign limit={state.speedLimitKmh} size={68} />}
         </div>
       </div>
+
+      {/* 測速照相／科技執法警示：獨立紅色橫幅，疊在設施卡片上方，視覺上明顯區隔於綠/藍設施告示牌 */}
+      <AnimatePresence mode="popLayout">
+        {state.upcomingCameras.map((c) => (
+          <CameraAlertBanner key={c.id} camera={c} speedKmh={state.speedKmh} routeSpeedLimitKmh={state.speedLimitKmh} />
+        ))}
+      </AnimatePresence>
 
       {/* 設施卡片：最近者最大（F 點視角），滿版無側邊留白，僅顯示當前方向 */}
       <div className="flex flex-1 flex-col gap-0.5">

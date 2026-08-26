@@ -5,7 +5,9 @@ import type {
   Facility,
   FreewayTopo,
   GeoFix,
+  SpeedCamera,
   TrackerState,
+  UpcomingCamera,
   UpcomingFacility,
 } from '../types';
 import { matchPosition, nearestPosition, REENTRY_THRESHOLD_M } from './mapMatching';
@@ -17,6 +19,8 @@ import {
 } from './direction';
 import { smoothSpeed, speedFromMileage } from './eta';
 import { indexFacilities, listMeaningfullyChanged, upcomingFacilities } from './facilities';
+import { cameraListChanged, indexCameras, upcomingCameras } from './cameras';
+import { getSpeedLimitAtMileage, OVER_SPEED_TOLERANCE_KMH } from './speedLimit';
 import {
   DR_TRIGGER_MS,
   startDeadReckoning,
@@ -28,6 +32,8 @@ import { haversineM } from '../utils/geo';
 const OFF_HIGHWAY_STREAK = 5;
 /** TTS 播報距離門檻 (km) */
 const TTS_ANNOUNCE_KM = 2.0;
+/** 照相機 TTS 播報距離門檻 (km)：比一般設施更近，避免密集測速點時過度播報 */
+const CAMERA_ANNOUNCE_KM = 1.0;
 /** 手動高架/平面切換後封鎖自動判定的里程 (km) */
 const MANUAL_LOCK_KM = 10;
 /** DR 恢復收斂門檻 (km) */
@@ -49,10 +55,16 @@ export interface TrackerContext {
   topo: FreewayTopo;
   /** indexFacilities(topo.facilities) 的快取，由 createTrackerContext 建立 */
   facilityIndex: Map<string, Facility[]>;
+  /** indexCameras(topo.cameras) 的快取，由 createTrackerContext 建立 */
+  cameraIndex: Map<string, SpeedCamera[]>;
 }
 
 export function createTrackerContext(topo: FreewayTopo): TrackerContext {
-  return { topo, facilityIndex: indexFacilities(topo.facilities) };
+  return {
+    topo,
+    facilityIndex: indexFacilities(topo.facilities),
+    cameraIndex: indexCameras(topo.cameras),
+  };
 }
 
 export function initialTrackerState(): TrackerState {
@@ -62,12 +74,15 @@ export function initialTrackerState(): TrackerState {
     currentMileage: 0,
     direction: 'UNKNOWN',
     speedKmh: 0,
+    speedLimitKmh: null,
     upcomingFacilities: [],
+    upcomingCameras: [],
     isDeadReckoning: false,
     isOffline: false,
     lastFix: null,
     announcements: [],
     announcedIds: [],
+    cameraAnnouncedIds: [],
     dir: initialDirectionState(),
     offMatchStreak: 0,
     manualTopoLock: null,
@@ -118,6 +133,51 @@ function recomputeUpcoming(ctx: TrackerContext, state: TrackerState): TrackerSta
   return { ...state, upcomingFacilities: next, announcedIds, announcements };
 }
 
+const CAMERA_TYPE_SPOKEN: Record<SpeedCamera['cameraType'], string> = {
+  fixed: '測速照相',
+  section_avg_start: '區間科技執法起點',
+  section_avg_end: '區間科技執法迄點',
+};
+
+/** 照相機播報文字；車速超過速限＋容忍值時加超速警語（優先採該照相機的速限，缺值時退回目前路段官方速限） */
+function buildCameraAnnouncementText(c: UpcomingCamera, speedKmh: number, routeSpeedLimitKmh: number | null): string {
+  const km = c.distanceKm.toFixed(1);
+  const label = CAMERA_TYPE_SPOKEN[c.cameraType];
+  const limit = c.speedLimitKmh ?? routeSpeedLimitKmh;
+  const limitSuffix = limit !== null ? `，速限 ${limit} 公里` : '';
+  const isSpeeding = limit !== null && speedKmh > limit + OVER_SPEED_TOLERANCE_KMH;
+  const prefix = isSpeeding ? '注意，您已超速，' : '';
+  return `${prefix}前方 ${km} 公里，${label}${limitSuffix}`;
+}
+
+/** 重算前方照相機 + 播報，含 hysteresis（結構仿 recomputeUpcoming） */
+function recomputeUpcomingCameras(ctx: TrackerContext, state: TrackerState): TrackerState {
+  if (!state.currentRouteId || state.direction === 'UNKNOWN') {
+    if (state.upcomingCameras.length === 0) return state;
+    return { ...state, upcomingCameras: [], cameraAnnouncedIds: [] };
+  }
+  const next = upcomingCameras(
+    ctx.cameraIndex.get(state.currentRouteId),
+    state.currentMileage,
+    state.direction,
+    state.speedKmh,
+  );
+  if (!cameraListChanged(state.upcomingCameras, next)) return state;
+
+  const nextIds = new Set(next.map((c) => c.id));
+  const cameraAnnouncedIds = state.cameraAnnouncedIds.filter((id) => nextIds.has(id));
+
+  const announcements = [...state.announcements];
+  const nearest = next[0];
+  if (nearest && nearest.distanceKm < CAMERA_ANNOUNCE_KM && !cameraAnnouncedIds.includes(nearest.id)) {
+    const text = buildCameraAnnouncementText(nearest, state.speedKmh, state.speedLimitKmh);
+    announcements.push({ facilityId: nearest.id, text });
+    cameraAnnouncedIds.push(nearest.id);
+  }
+
+  return { ...state, upcomingCameras: next, cameraAnnouncedIds, announcements };
+}
+
 /** 手動鎖是否仍有效；行駛超過 10km 自動解除 */
 function activeManualLock(state: TrackerState): string | null {
   if (!state.manualTopoLock) return null;
@@ -143,6 +203,11 @@ function applyTriggerZones(ctx: TrackerContext, state: TrackerState, fix: GeoFix
     }
   }
   return state;
+}
+
+function computeSpeedLimit(ctx: TrackerContext, routeId: string | null, mileage: number): number | null {
+  if (!routeId) return null;
+  return getSpeedLimitAtMileage(ctx.topo.routes.find((r) => r.id === routeId), mileage);
 }
 
 /** OFF_HIGHWAY 待命：找目前離哪條國道最近，附上雙向鄰近設施（無視吸附門檻、與追蹤判定無關） */
@@ -203,6 +268,9 @@ function handleFix(ctx: TrackerContext, prev: TrackerState, fix: GeoFix): Tracke
           offMatchStreak: 0,
           upcomingFacilities: [],
           announcedIds: [],
+          upcomingCameras: [],
+          cameraAnnouncedIds: [],
+          speedLimitKmh: null,
           nearestHighway: computeNearestHighway(ctx, fix),
           // 保留 currentRouteId/direction 供快速恢復參考（UI 顯示待命）
         };
@@ -256,8 +324,9 @@ function handleFix(ctx: TrackerContext, prev: TrackerState, fix: GeoFix): Tracke
 
   // trigger zone 預切換（高架/平面）
   state = applyTriggerZones(ctx, state, fix);
+  state.speedLimitKmh = computeSpeedLimit(ctx, state.currentRouteId, state.currentMileage);
 
-  return recomputeUpcoming(ctx, state);
+  return recomputeUpcomingCameras(ctx, recomputeUpcoming(ctx, state));
 }
 
 function handleTick(ctx: TrackerContext, state: TrackerState, now: number): TrackerState {
@@ -283,8 +352,9 @@ function handleTick(ctx: TrackerContext, state: TrackerState, now: number): Trac
     dr: next,
     currentMileage: next.estimatedMileage,
     speedKmh: next.speedKmh,
+    speedLimitKmh: computeSpeedLimit(ctx, state.currentRouteId, next.estimatedMileage),
   };
-  return recomputeUpcoming(ctx, advanced);
+  return recomputeUpcomingCameras(ctx, recomputeUpcoming(ctx, advanced));
 }
 
 export function trackerReducer(
@@ -298,12 +368,16 @@ export function trackerReducer(
     case 'TICK':
       return handleTick(ctx, state, event.now);
     case 'MANUAL_TOPO_SWITCH': {
-      return recomputeUpcoming(ctx, {
-        ...state,
-        currentRouteId: event.toRouteId,
-        manualTopoLock: { routeId: event.toRouteId, sinceMileage: state.currentMileage },
-        dir: carryOverDirectionState(state.direction),
-      });
+      return recomputeUpcomingCameras(
+        ctx,
+        recomputeUpcoming(ctx, {
+          ...state,
+          currentRouteId: event.toRouteId,
+          manualTopoLock: { routeId: event.toRouteId, sinceMileage: state.currentMileage },
+          dir: carryOverDirectionState(state.direction),
+          speedLimitKmh: computeSpeedLimit(ctx, event.toRouteId, state.currentMileage),
+        }),
+      );
     }
     case 'GEO_ERROR':
       // code 1 = PERMISSION_DENIED；其餘交由 UI 依 phase + lastFix 呈現
@@ -319,6 +393,7 @@ export function trackerReducer(
         currentRouteId: event.saved.routeId,
         currentMileage: event.saved.mileage,
         direction: event.saved.direction,
+        speedLimitKmh: computeSpeedLimit(ctx, event.saved.routeId, event.saved.mileage),
         dir:
           event.saved.direction === 'UNKNOWN'
             ? initialDirectionState()

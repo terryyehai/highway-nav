@@ -2,5 +2,7 @@
   "removeFacilityIds": [],
   "facilityPatches": [],
   "extraTransitions": [],
-  "removeTransitionIds": []
+  "removeTransitionIds": [],
+  "removeCameraIds": [],
+  "extraCameras": []
 }

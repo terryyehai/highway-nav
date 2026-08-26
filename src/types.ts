@@ -23,6 +23,34 @@ export interface Facility {
   serves: Serves;
 }
 
+/** 依官方里程區間劃分的速限路段（來源：tisvcloud Section.xml <SpeedLimit>，km/h） */
+export interface SpeedLimitSegment {
+  fromKm: number;
+  toKm: number;
+  limit: number;
+}
+
+export type CameraType = 'fixed' | 'section_avg_start' | 'section_avg_end';
+
+export interface SpeedCamera {
+  id: string;
+  routeId: string;
+  cameraType: CameraType;
+  mileage: number; // 國道絕對里程 (km)
+  lat: number;
+  lng: number;
+  serves: Serves;
+  speedLimitKmh: number | null;
+  /** section_avg_start/end 時指向配對的另一端 id（供未來串接區間執法用，目前資料為空） */
+  sectionPartnerId?: string;
+}
+
+export interface UpcomingCamera extends SpeedCamera {
+  distanceKm: number;
+  /** 預估抵達秒數；null = 速度過低無法估算 */
+  etaSeconds: number | null;
+}
+
 export interface RouteGeometry {
   id: string;            // 'N1' | 'N1H' | 'N2' ...
   name: string;          // 國道1號
@@ -34,6 +62,8 @@ export interface RouteGeometry {
   pairedRouteId?: string;
   /** 高架線：全掃描模糊時優先吸附平面主線（手動 TopoSwitch 可修正） */
   isElevated?: boolean;
+  /** 依里程遞增排序；僅國道有此資料（快速公路資料源無速限欄位） */
+  speedLimits?: SpeedLimitSegment[];
 }
 
 export interface TriggerZone {
@@ -58,6 +88,7 @@ export interface FreewayTopo {
   routes: RouteGeometry[];
   facilities: Facility[];
   transitions: TopologyTransition[];
+  cameras: SpeedCamera[];
 }
 
 export interface UpcomingFacility extends Facility {
@@ -107,7 +138,10 @@ export interface TrackerState {
   direction: Direction;
   /** 指數移動平均後的時速 */
   speedKmh: number;
+  /** 目前里程所在路段之官方速限 (km/h)；無資料（快速公路）或不在國道上為 null */
+  speedLimitKmh: number | null;
   upcomingFacilities: UpcomingFacility[];
+  upcomingCameras: UpcomingCamera[];
   isDeadReckoning: boolean;
   isOffline: boolean;
   lastFix: GeoFix | null;
@@ -115,6 +149,8 @@ export interface TrackerState {
   announcements: Announcement[];
   /** 已播報過且仍在 upcoming 清單內的設施 id */
   announcedIds: string[];
+  /** 已播報過且仍在 upcomingCameras 清單內的照相機 id */
+  cameraAnnouncedIds: string[];
   /** 方向判定內部狀態 */
   dir: DirectionJudgeState;
   /** off-highway 判定：連續超出吸附閾值的次數 */

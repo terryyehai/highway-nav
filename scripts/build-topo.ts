@@ -10,6 +10,8 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import JSZip from 'jszip';
+import type { RouteGeometry, Serves, SpeedCamera } from '../src/types';
+import { nearestPosition } from '../src/core/mapMatching';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -28,6 +30,15 @@ const BROWSER_HEADERS = {
 };
 const OUT_PATH = resolve(__dirname, '../src/data/freeway-topo.json');
 const OVERRIDES_PATH = resolve(__dirname, 'topo-overrides.json');
+
+// 測速照相：data.gov.tw 資料集僅含座標，用 metadata API 動態取得目前下載連結（避免寫死含日期的檔名）
+const DATA_GOV_METADATA_URL = (datasetId: string) => `https://data.gov.tw/api/v2/rest/dataset/${datasetId}`;
+const CAMERA_HIGHWAY_DATASET_ID = '13940'; // 警政署「國道公路固定式測速照相地點」
+const CAMERA_NATIONWIDE_DATASET_ID = '7320'; // 警政署「測速執法設置點」（全國性，補快速公路涵蓋）
+/** 照相機座標吸附到路網的門檻 (m)：比 GPS 追蹤用的 60m 寬鬆，容忍地址/座標誤差 */
+const CAMERA_SNAP_THRESHOLD_M = 150;
+/** 兩資料源合併去重的里程差門檻 (km)：13940（國道權威資料源）優先，7320 僅補未涵蓋者 */
+const CAMERA_DEDUPE_KM = 0.15;
 
 /** KMZ 檔名代碼 → 專案路線 id 與顯示名稱（16 條快速公路，涵蓋 data.gov.tw 159945 交流道資料集全部路線） */
 const EXPWY_ROAD_MAP: Record<string, { roadNum: string; id: string; name: string }> = {
@@ -73,6 +84,7 @@ interface RawSection {
   end: string;
   startKm: number;
   endKm: number;
+  speedLimit: number | null; // km/h，資料源缺值時為 null
 }
 
 function parseKm(s: string): number {
@@ -130,6 +142,7 @@ function parseSections(xml: string): RawSection[] {
     if (!mile) continue;
     const rs = b.match(/<Start>([^<]*)<\/Start>[\s\S]*?<End>([^<]*)<\/End>/);
     if (!rs) continue;
+    const speedLimitRaw = tag(b, 'SpeedLimit');
     out.push({
       sectionId: tag(b, 'SectionID'),
       roadId,
@@ -138,6 +151,7 @@ function parseSections(xml: string): RawSection[] {
       end: rs[2],
       startKm: parseKm(mile[1]),
       endKm: parseKm(mile[2]),
+      speedLimit: speedLimitRaw && Number.isFinite(Number(speedLimitRaw)) ? Number(speedLimitRaw) : null,
     });
   }
   return out;
@@ -308,6 +322,118 @@ function expresswayServes(
   return 'BOTH'; // 兩側皆無資料，無法判斷時預設不過濾
 }
 
+interface RawCameraRow {
+  lat: number;
+  lng: number;
+  direct: string;
+  speedLimit: number | null;
+}
+
+/** 簡單 CSV 解析：政府開放資料欄位皆不含逗號，split 已足夠（與本腳本對其他政府資料格式的假設一致） */
+function parseCsvRows(text: string): string[][] {
+  return text
+    .replace(/^﻿/, '') // 去 UTF-8 BOM
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.split(','));
+}
+
+/** data.gov.tw 資料集 metadata API：動態取得目前的下載連結，避免寫死含日期的檔名 */
+async function fetchDatasetDownloadUrl(datasetId: string): Promise<string> {
+  const meta = await fetchJsonWithHeaders<{
+    result: { distribution: Array<{ resourceDownloadUrl: string }> };
+  }>(DATA_GOV_METADATA_URL(datasetId));
+  const url = meta.result?.distribution?.[0]?.resourceDownloadUrl;
+  if (!url) throw new Error(`dataset ${datasetId} 找不到 resourceDownloadUrl`);
+  return url;
+}
+
+function rowsFromCsv(csv: string, latCol: string, lngCol: string, dirCol: string, limitCol: string): RawCameraRow[] {
+  const rows = parseCsvRows(csv);
+  const header = rows[0];
+  const latI = header.indexOf(latCol);
+  const lngI = header.indexOf(lngCol);
+  const dirI = header.indexOf(dirCol);
+  const limitI = header.indexOf(limitCol);
+  return rows
+    .slice(1)
+    .filter((r) => r.length >= header.length)
+    .map((r) => {
+      const limitRaw = r[limitI];
+      return {
+        lat: Number(r[latI]),
+        lng: Number(r[lngI]),
+        direct: r[dirI] ?? '',
+        speedLimit: limitRaw && Number.isFinite(Number(limitRaw)) ? Number(limitRaw) : null,
+      };
+    })
+    .filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng));
+}
+
+/** dataset 13940（國道專用）：ZIP 內單一 CSV */
+async function fetchHighwayCameraRows(): Promise<RawCameraRow[]> {
+  const zipUrl = await fetchDatasetDownloadUrl(CAMERA_HIGHWAY_DATASET_ID);
+  const buf = await fetchBinary(zipUrl);
+  const zip = await JSZip.loadAsync(buf);
+  const entryName = Object.keys(zip.files).find((n) => n.endsWith('.csv'));
+  if (!entryName) throw new Error('國道測速照相 ZIP 內找不到 CSV（資料源格式可能已變更）');
+  const csv = await zip.file(entryName)!.async('string');
+  return rowsFromCsv(csv, '座標緯度', '座標經度', '拍攝方向', '速限');
+}
+
+/** dataset 7320（全國性）：直接 CSV，補快速公路涵蓋（國道部分與 13940 重複，靠去重排除） */
+async function fetchNationwideCameraRows(): Promise<RawCameraRow[]> {
+  const csvUrl = await fetchDatasetDownloadUrl(CAMERA_NATIONWIDE_DATASET_ID);
+  const csv = (await fetchBinary(csvUrl)).toString('utf-8');
+  return rowsFromCsv(csv, 'Latitude', 'Longitude', 'direct', 'limit');
+}
+
+/**
+ * 依「拍攝方向」文字（如「北往南」「南北雙向」）與路線 displayLabels 比對決定 serves；
+ * 含「雙向」或無法判斷 → BOTH（與既有 expresswayServes 同樣「無法判斷時預設不過濾」的保守精神）。
+ */
+function cameraServesFromDirect(direct: string, labels: { inc: string; dec: string }): Serves {
+  if (!direct || direct.includes('雙向')) return 'BOTH';
+  const m = direct.match(/[東西南北]往([東西南北])/);
+  if (!m) return 'BOTH';
+  const to = m[1];
+  if (labels.inc.includes(to)) return 'INCREASING';
+  if (labels.dec.includes(to)) return 'DECREASING';
+  return 'BOTH';
+}
+
+/**
+ * 座標無路線/里程資訊，改用既有 map matching 的 nearestPosition() 吸附到路網（比解析中文地址文字可靠）。
+ * seen：跨兩資料源共用的已收錄清單，供去重（同路線里程差 <CAMERA_DEDUPE_KM 視為重複）。
+ */
+function buildCameras(
+  rows: RawCameraRow[],
+  routesTyped: RouteGeometry[],
+  seen: Array<{ routeId: string; mileage: number }>,
+): SpeedCamera[] {
+  const out: SpeedCamera[] = [];
+  for (const row of rows) {
+    const match = nearestPosition(routesTyped, row.lat, row.lng);
+    if (!match || match.distanceM > CAMERA_SNAP_THRESHOLD_M) continue;
+    if (seen.some((s) => s.routeId === match.routeId && Math.abs(s.mileage - match.mileage) < CAMERA_DEDUPE_KM)) {
+      continue;
+    }
+    const route = routesTyped.find((r) => r.id === match.routeId)!;
+    seen.push({ routeId: match.routeId, mileage: match.mileage });
+    out.push({
+      id: `CAM-${match.routeId}-${match.mileage.toFixed(3)}`,
+      routeId: match.routeId,
+      cameraType: 'fixed',
+      mileage: Number(match.mileage.toFixed(3)),
+      lat: row.lat,
+      lng: row.lng,
+      serves: cameraServesFromDirect(row.direct, route.displayLabels),
+      speedLimitKmh: row.speedLimit,
+    });
+  }
+  return out;
+}
+
 interface ExpwyInterchangeRow {
   公路編號: string;
   樁號: string;
@@ -388,6 +514,22 @@ async function main() {
     }
     const lngs = coords.map((c) => c[0]);
     const lats = coords.map((c) => c[1]);
+
+    // --- 速限路段：相鄰同值合併，減少 JSON 體積 ---
+    const speedLimits: Array<{ fromKm: number; toKm: number; limit: number }> = [];
+    for (const sec of inc) {
+      if (sec.speedLimit === null) {
+        warnings.push({ route: meta.id, msg: `路段 ${sec.start}→${sec.end} 缺速限資料` });
+        continue;
+      }
+      const last = speedLimits[speedLimits.length - 1];
+      if (last && last.limit === sec.speedLimit && Math.abs(last.toKm - sec.startKm) < 0.01) {
+        last.toKm = sec.endKm;
+      } else {
+        speedLimits.push({ fromKm: sec.startKm, toKm: sec.endKm, limit: sec.speedLimit });
+      }
+    }
+
     routes.push({
       id: meta.id,
       name: meta.name,
@@ -397,6 +539,7 @@ async function main() {
       mileageIndex,
       ...(PAIRED[meta.id] ? { pairedRouteId: PAIRED[meta.id] } : {}),
       ...(meta.id.endsWith('H') ? { isElevated: true } : {}),
+      ...(speedLimits.length > 0 ? { speedLimits } : {}),
     });
 
     // --- 設施：路段邊界即設施；比對雙向邊界差異 → serves ---
@@ -527,6 +670,30 @@ async function main() {
     }
   }
 
+  // ================= 測速照相／科技執法（固定式） =================
+  // 區間平均速率科技執法查無結構化開放資料源，暫不產製；架構已支援（SpeedCamera.cameraType），
+  // 資料留空，之後可透過 topo-overrides.json 的 extraCameras 手動補上。
+  console.log('\n下載測速照相地點開放資料...');
+  const routesTyped = routes as unknown as RouteGeometry[];
+  const seenCameraSpots: Array<{ routeId: string; mileage: number }> = [];
+  let cameras: SpeedCamera[] = [];
+  try {
+    const rows = await fetchHighwayCameraRows();
+    const matched = buildCameras(rows, routesTyped, seenCameraSpots);
+    cameras = cameras.concat(matched);
+    console.log(`國道測速照相（dataset ${CAMERA_HIGHWAY_DATASET_ID}）：${rows.length} 筆，落在路網內 ${matched.length} 筆`);
+  } catch (e) {
+    warnings.push({ route: 'CAMERA', msg: `國道測速照相資料下載/解析失敗，此次略過：${(e as Error).message}` });
+  }
+  try {
+    const rows = await fetchNationwideCameraRows();
+    const matched = buildCameras(rows, routesTyped, seenCameraSpots);
+    cameras = cameras.concat(matched);
+    console.log(`全國測速執法設置點（dataset ${CAMERA_NATIONWIDE_DATASET_ID}）：${rows.length} 筆，補上路網內 ${matched.length} 筆（含快速公路、扣除與國道重複者）`);
+  } catch (e) {
+    warnings.push({ route: 'CAMERA', msg: `全國測速執法資料下載/解析失敗，此次略過：${(e as Error).message}` });
+  }
+
   // --- 高架/平面 trigger zones ---
   // 自動生成（--auto-transitions）預設停用：轉接道座標水平緊貼主線，
   // 主線駕駛必誤觸（QA 矩陣情境一）。正式 zone 需含匝道分岔幾何，由 overrides 人工定義。
@@ -550,7 +717,14 @@ async function main() {
   }
 
   // --- 套用人工修正 ---
-  let overrides: any = { removeFacilityIds: [], facilityPatches: [], extraTransitions: [], removeTransitionIds: [] };
+  let overrides: any = {
+    removeFacilityIds: [],
+    facilityPatches: [],
+    extraTransitions: [],
+    removeTransitionIds: [],
+    removeCameraIds: [],
+    extraCameras: [],
+  };
   if (existsSync(OVERRIDES_PATH)) {
     overrides = { ...overrides, ...JSON.parse(readFileSync(OVERRIDES_PATH, 'utf-8')) };
   }
@@ -563,6 +737,9 @@ async function main() {
   const finalTransitions = (transitions as any[])
     .filter((t) => !overrides.removeTransitionIds.includes(t.id))
     .concat(overrides.extraTransitions);
+  const finalCameras = (cameras as any[])
+    .filter((c) => !overrides.removeCameraIds.includes(c.id))
+    .concat(overrides.extraCameras);
 
   const topo = {
     version: '1.0.0',
@@ -570,6 +747,7 @@ async function main() {
     routes,
     facilities: finalFacilities,
     transitions: finalTransitions,
+    cameras: finalCameras,
   };
   mkdirSync(dirname(OUT_PATH), { recursive: true });
   writeFileSync(OUT_PATH, JSON.stringify(topo));
@@ -578,11 +756,17 @@ async function main() {
   console.log('\n=== 品質報表 ===');
   for (const r of routes as any[]) {
     const fc = finalFacilities.filter((f: any) => f.routeId === r.id);
+    const slInfo = r.speedLimits ? `、速限路段 ${r.speedLimits.length}` : '';
     console.log(
-      `${r.id.padEnd(4)} ${r.name}：節點 ${r.coords.length}、里程 ${r.mileageIndex[0]}–${r.mileageIndex[r.mileageIndex.length - 1]}km、設施 ${fc.length}（單向 ${fc.filter((f: any) => f.serves !== 'BOTH').length}）`,
+      `${r.id.padEnd(4)} ${r.name}：節點 ${r.coords.length}、里程 ${r.mileageIndex[0]}–${r.mileageIndex[r.mileageIndex.length - 1]}km、設施 ${fc.length}（單向 ${fc.filter((f: any) => f.serves !== 'BOTH').length}）${slInfo}`,
     );
   }
   console.log(`transitions：${finalTransitions.length}`);
+  const cameraBreakdown = (routes as any[])
+    .map((r) => `${r.id} ${finalCameras.filter((c: any) => c.routeId === r.id).length}`)
+    .filter((s) => !s.endsWith(' 0'))
+    .join('、');
+  console.log(`測速照相：${finalCameras.length}${cameraBreakdown ? `（${cameraBreakdown}）` : ''}`);
   if (warnings.length) {
     console.log(`\nWarnings (${warnings.length})：`);
     for (const w of warnings) console.log(`  [${w.route}] ${w.msg}`);
