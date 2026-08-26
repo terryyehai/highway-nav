@@ -7,6 +7,7 @@ import { FacilityCard } from './FacilityCard';
 import { TopoSwitch } from './TopoSwitch';
 import { NearestHighwayPanel } from './NearestHighwayPanel';
 import { HighwayBadge } from './HighwayBadge';
+import { routeColorScheme } from '../utils/routeColor';
 
 function StatusScreen({
   title,
@@ -18,9 +19,9 @@ function StatusScreen({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-      <div className="text-3xl font-bold text-highway-green">{title}</div>
-      {detail && <div className="text-base text-highway-green/60">{detail}</div>}
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
+      <div className="text-4xl font-bold text-highway-green">{title}</div>
+      {detail && <div className="text-lg text-highway-green/60">{detail}</div>}
       {children}
     </div>
   );
@@ -69,54 +70,64 @@ export function HighwayDashboard({
   }
 
   if (state.phase === 'OFF_HIGHWAY') {
+    // 方向未定，雙向都要顯示：獨立版面（非 StatusScreen 置中留白容器），讓下方面板能真正滿版
     return (
-      <StatusScreen title="未在國道上" detail="進入國道後自動開始導航">
-        {state.nearestHighway && (
+      <div className="flex flex-1 flex-col">
+        <div className="flex flex-col items-center gap-2 px-6 pb-5 pt-10 text-center">
+          <div className="text-4xl font-bold text-highway-green">未在國道上</div>
+          <div className="text-lg text-highway-green/60">進入國道後自動開始導航</div>
+        </div>
+        {state.nearestHighway ? (
           <NearestHighwayPanel info={state.nearestHighway} routes={routes} />
+        ) : (
+          <div className="flex flex-1" />
         )}
-      </StatusScreen>
+      </div>
     );
   }
 
-  // TRACKING
+  // TRACKING：僅呈現當前行進方向，滿版告示牌卡片，與 OFF_HIGHWAY 的雙向瀏覽版面刻意分開設計
+  const headerColor = route ? routeColorScheme(route.id) : null;
   return (
-    <div className="flex flex-1 flex-col gap-3 p-4">
-      {/* 頂列：路線徽章 / 方向 / 里程 / 車速 */}
-      <div className="flex items-center justify-between rounded-2xl border border-signboard-line bg-white/50 px-4 py-3">
+    <div className="flex flex-1 flex-col gap-0.5">
+      {/* 頂列：路線徽章 / 方向 / 里程 / 車速——與下方設施卡同色系，視覺上連成一整組告示牌 */}
+      <div
+        className={`flex items-center justify-between px-4 py-4 ${
+          headerColor ? headerColor.bg : 'bg-highway-green'
+        }`}
+      >
         <div className="flex items-center gap-3">
-          {route && <HighwayBadge routeId={route.id} size={40} />}
-          <span className="text-2xl font-bold text-highway-green">{route?.name ?? '—'}</span>
+          {route && <HighwayBadge routeId={route.id} size={48} />}
+          <span className="text-3xl font-bold text-white">{route?.name ?? '—'}</span>
           {dirLabel ? (
-            <span className="rounded-lg bg-highway-green px-2 py-0.5 text-lg font-bold text-white">
+            <span className="rounded-lg bg-white/20 px-2.5 py-1 text-xl font-bold text-white">
               {dirLabel}
             </span>
           ) : (
-            <span className="rounded-lg border border-signboard-line px-2 py-0.5 text-sm text-highway-green/60">
+            <span className="rounded-lg border border-white/30 px-2.5 py-1 text-base text-white/70">
               判定方向中
             </span>
           )}
           {state.isDeadReckoning && (
-            <span className="rounded-lg bg-shield-red/15 px-2 py-0.5 text-sm font-bold text-shield-red">
+            <span className="rounded-lg bg-black/25 px-2.5 py-1 text-base font-bold text-white">
               隧道推算中
             </span>
           )}
           {state.isOffline && (
-            <span className="rounded-lg bg-shield-red/15 px-2 py-0.5 text-sm text-shield-red">
-              離線
-            </span>
+            <span className="rounded-lg bg-black/25 px-2.5 py-1 text-base text-white">離線</span>
           )}
         </div>
         <div className="text-right font-mono tabular-nums">
-          <div className="text-xl font-bold text-highway-green">
+          <div className="text-2xl font-bold text-white">
             {state.currentMileage.toFixed(1)}
-            <span className="text-sm text-highway-green/50">K</span>
+            <span className="text-base text-white/60">K</span>
           </div>
-          <div className="text-sm text-highway-green/60">{Math.round(state.speedKmh)} km/h</div>
+          <div className="text-base text-white/70">{Math.round(state.speedKmh)} km/h</div>
         </div>
       </div>
 
-      {/* 設施卡片：最近者最大（F 點視角） */}
-      <div className="flex flex-1 flex-col gap-3">
+      {/* 設施卡片：最近者最大（F 點視角），滿版無側邊留白，僅顯示當前方向 */}
+      <div className="flex flex-1 flex-col gap-0.5">
         <AnimatePresence mode="popLayout">
           {state.upcomingFacilities.map((f, i) => (
             <FacilityCard key={f.id} facility={f} rank={i} speedKmh={state.speedKmh} />
@@ -132,7 +143,7 @@ export function HighwayDashboard({
 
       {/* 底列：高架/平面切換 */}
       {route?.pairedRouteId && (
-        <div className="flex justify-center pb-1">
+        <div className="flex justify-center py-3">
           <TopoSwitch
             routes={routes}
             currentRouteId={route.id}

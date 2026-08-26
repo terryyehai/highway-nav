@@ -1,13 +1,14 @@
 // OFF_HIGHWAY 待命畫面：顯示離目前位置最近的國道/快速公路，及其雙向最近的交流道/服務區。
-// 仿公路告示牌列表：徽章 + 地名，項目間水平分割線。
+// 方向未定，兩個方向都要看，因此採「上下堆疊、各自滿版」而非左右分欄擠壓小字。
 
 import type { NearestHighwayInfo, RouteGeometry, UpcomingFacility } from '../types';
 import { HighwayBadge } from './HighwayBadge';
+import { routeColorScheme } from '../utils/routeColor';
 
 const TYPE_LABEL: Record<UpcomingFacility['type'], string> = {
   interchange: '交流道',
   rest_area: '服務區',
-  junction: '系統',
+  junction: '系統交流道',
 };
 
 function LocationIcon() {
@@ -28,7 +29,7 @@ function LocationIcon() {
   );
 }
 
-function DirectionColumn({
+function DirectionSection({
   label,
   facilities,
   routeId,
@@ -37,30 +38,25 @@ function DirectionColumn({
   facilities: UpcomingFacility[];
   routeId: string;
 }) {
+  const c = routeColorScheme(routeId);
   return (
-    <div className="flex-1 rounded-xl border border-signboard-line bg-white/50">
-      <div className="border-b border-signboard-line px-3 py-2 text-sm font-bold text-highway-green">
-        {label}
-      </div>
+    <div className={c.bg}>
+      <div className={`px-4 py-2.5 text-lg font-bold ${c.text} ${c.bgSoft}`}>{label}</div>
       {facilities.length === 0 ? (
-        <div className="px-3 py-3 text-xs text-highway-green/40">無資料</div>
+        <div className={`px-4 py-4 text-base ${c.textSub}`}>無資料</div>
       ) : (
         <ul>
           {facilities.map((f, i) => (
             <li
               key={f.id}
-              className={`flex items-center gap-2 px-3 py-2.5 ${
-                i > 0 ? 'border-t border-signboard-line' : ''
-              }`}
+              className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? `border-t ${c.divider}` : ''}`}
             >
-              <HighwayBadge routeId={routeId} size={22} />
+              <HighwayBadge routeId={routeId} size={30} />
               <div className="min-w-0 flex-1">
-                <span className="mr-1 text-[10px] text-highway-green/40">
-                  {TYPE_LABEL[f.type]}
-                </span>
-                <span className="truncate text-sm font-bold text-highway-green">{f.name}</span>
+                <span className={`mr-1.5 text-xs ${c.textSub}`}>{TYPE_LABEL[f.type]}</span>
+                <span className={`truncate text-xl font-bold ${c.text}`}>{f.name}</span>
               </div>
-              <span className="shrink-0 font-mono text-sm tabular-nums text-highway-green/60">
+              <span className={`shrink-0 font-mono text-xl tabular-nums ${c.text}`}>
                 {f.distanceKm.toFixed(1)} km
               </span>
             </li>
@@ -80,20 +76,20 @@ export function NearestHighwayPanel({
 }) {
   const route = routes.find((r) => r.id === info.routeId);
   return (
-    <div className="mt-6 w-full max-w-sm text-left">
-      <div className="mb-3 flex items-center justify-center gap-1.5 text-sm text-highway-green/60">
+    <div className="flex w-full flex-1 flex-col">
+      <div className="flex items-center justify-center gap-1.5 pb-4 text-base text-highway-green/60">
         <LocationIcon />
         <span>
           距離最近的{route?.name ?? info.routeId} {info.distanceKm.toFixed(1)} 公里
         </span>
       </div>
-      <div className="flex gap-3">
-        <DirectionColumn
+      <div className="flex flex-1 flex-col gap-0.5">
+        <DirectionSection
           label={route?.displayLabels.inc ?? '遞增方向'}
           facilities={info.increasing}
           routeId={info.routeId}
         />
-        <DirectionColumn
+        <DirectionSection
           label={route?.displayLabels.dec ?? '遞減方向'}
           facilities={info.decreasing}
           routeId={info.routeId}
