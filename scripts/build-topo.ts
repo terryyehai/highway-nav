@@ -1,18 +1,53 @@
 // 圖資產製腳本：由高公局開放資料 (tisvcloud.freeway.gov.tw，免金鑰) 產出 src/data/freeway-topo.json
 // 用法：npm run build:topo
-// 資料源：MOTC 交通資料標準 Section.xml（路段/里程）+ SectionShape.xml（WKT 線形）
+// 資料源：
+//   國道 — MOTC 交通資料標準 Section.xml（路段/里程）+ SectionShape.xml（WKT 線形）
+//   快速公路 — 公路總局開放資料「快速公路交流道里程及通往地名」(JSON) +
+//              「省道公路路線圖資」KMZ（motc.gov.tw uploaddowndoc，需瀏覽器 UA 否則 WAF 403/503）
 // 品質報表輸出至 stdout；人工修正寫入 scripts/topo-overrides.json。
 
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import JSZip from 'jszip';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const SECTION_URL = 'https://tisvcloud.freeway.gov.tw/history/motc20/Section.xml';
 const SHAPE_URL = 'https://tisvcloud.freeway.gov.tw/history/motc20/SectionShape.xml';
+// 公路總局「快速公路交流道里程及通往地名」與「省道公路路線圖資」(data.gov.tw dataset 159945 / 105020)
+const EXPWY_INTERCHANGE_URL =
+  'https://www.motc.gov.tw/uploaddowndoc?file=datagov/1521771689845723136.json&filedisplay=expressway-interchanges.json&flag=doc';
+const EXPWY_ROUTE_ZIP_URL =
+  'https://www.motc.gov.tw/uploaddowndoc?file=datagov/1476384691685691392.zip&filedisplay=route.zip&flag=doc';
+// motc.gov.tw 對無瀏覽器特徵的請求會回 403/503，需帶正常瀏覽器 UA + Referer
+const BROWSER_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+  Referer: 'https://data.gov.tw/',
+};
 const OUT_PATH = resolve(__dirname, '../src/data/freeway-topo.json');
 const OVERRIDES_PATH = resolve(__dirname, 'topo-overrides.json');
+
+/** KMZ 檔名代碼 → 專案路線 id 與顯示名稱（16 條快速公路，涵蓋 data.gov.tw 159945 交流道資料集全部路線） */
+const EXPWY_ROAD_MAP: Record<string, { roadNum: string; id: string; name: string }> = {
+  P0610: { roadNum: '台61', id: 'E61', name: '台61線' },
+  P0620: { roadNum: '台62', id: 'E62', name: '台62線' },
+  P0621: { roadNum: '台62甲', id: 'E62A', name: '台62甲線' },
+  P0640: { roadNum: '台64', id: 'E64', name: '台64線' },
+  P0650: { roadNum: '台65', id: 'E65', name: '台65線' },
+  P0660: { roadNum: '台66', id: 'E66', name: '台66線' },
+  P0680: { roadNum: '台68', id: 'E68', name: '台68線' },
+  P0720: { roadNum: '台72', id: 'E72', name: '台72線' },
+  P0740: { roadNum: '台74', id: 'E74', name: '台74線' },
+  P0741: { roadNum: '台74甲', id: 'E74A', name: '台74甲線' },
+  P0760: { roadNum: '台76', id: 'E76', name: '台76線' },
+  P0780: { roadNum: '台78', id: 'E78', name: '台78線' },
+  P0820: { roadNum: '台82', id: 'E82', name: '台82線' },
+  P0840: { roadNum: '台84', id: 'E84', name: '台84線' },
+  P0860: { roadNum: '台86', id: 'E86', name: '台86線' },
+  P0880: { roadNum: '台88', id: 'E88', name: '台88線' },
+};
 
 /** RoadID → 專案路線 id 與顯示標籤 */
 const ROAD_MAP: Record<string, { id: string; name: string }> = {
@@ -63,6 +98,26 @@ async function fetchText(url: string): Promise<string> {
     }
   }
   throw new Error('unreachable');
+}
+
+/** motc.gov.tw 對缺瀏覽器特徵的請求會擋（403/503），需帶 BROWSER_HEADERS */
+async function fetchBinary(url: string): Promise<Buffer> {
+  for (let i = 0; i < 3; i++) {
+    try {
+      const res = await fetch(url, { headers: BROWSER_HEADERS });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return Buffer.from(await res.arrayBuffer());
+    } catch (e) {
+      if (i === 2) throw e;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  throw new Error('unreachable');
+}
+
+async function fetchJsonWithHeaders<T>(url: string): Promise<T> {
+  const buf = await fetchBinary(url);
+  return JSON.parse(buf.toString('utf-8')) as T;
 }
 
 function parseSections(xml: string): RawSection[] {
@@ -146,6 +201,122 @@ function distM(a: [number, number], b: [number, number]): number {
 interface Warning {
   route: string;
   msg: string;
+}
+
+interface RouteSegment {
+  startKm: number;
+  endKm: number;
+  coords: Array<[number, number]>;
+}
+
+/** 解析單一路線 KML（doc.kml）：每個 Placemark 為一段養護路段，含樁號範圍與線形 */
+function parseKmlSegments(kml: string): RouteSegment[] {
+  const segments: RouteSegment[] = [];
+  for (const m of kml.matchAll(/<Placemark>([\s\S]*?)<\/Placemark>/g)) {
+    const block = m[1];
+    const range = block.match(/樁號範圍：<\/td><td>(\d+)K\+(\d+)至(\d+)K\+(\d+)/);
+    const coordsBlock = block.match(/<coordinates>([\s\S]*?)<\/coordinates>/);
+    if (!range || !coordsBlock) continue;
+    const coords = coordsBlock[1]
+      .trim()
+      .split(/\s+/)
+      .map((triplet) => {
+        const [lng, lat] = triplet.split(',').map(Number);
+        return [lng, lat] as [number, number];
+      })
+      .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat));
+    if (coords.length < 2) continue;
+    segments.push({
+      startKm: Number(range[1]) + Number(range[2]) / 1000,
+      endKm: Number(range[3]) + Number(range[4]) / 1000,
+      coords,
+    });
+  }
+  segments.sort((a, b) => a.startKm - b.startKm);
+  return segments;
+}
+
+/** 依序組裝路段線形為單一路線，抽稀並建立 mileageIndex（與國道管線共用同一套內插邏輯） */
+function assembleRoute(
+  segments: RouteSegment[],
+  routeLabel: string,
+  warnings: Warning[],
+): { coords: Array<[number, number]>; mileageIndex: number[] } | null {
+  const coords: Array<[number, number]> = [];
+  const mileageIndex: number[] = [];
+  for (const seg of segments) {
+    const geo = simplify(seg.coords, 15);
+    const cum: number[] = [0];
+    for (let i = 1; i < geo.length; i++) cum.push(cum[i - 1] + distM(geo[i - 1], geo[i]));
+    const total = cum[cum.length - 1] || 1;
+    const geomKm = total / 1000;
+    const officialKm = Math.abs(seg.endKm - seg.startKm);
+    if (officialKm > 0.3 && Math.abs(geomKm - officialKm) / officialKm > 0.05) {
+      warnings.push({
+        route: routeLabel,
+        msg: `${seg.startKm}K→${seg.endKm}K 幾何 ${geomKm.toFixed(2)}km vs 官方 ${officialKm.toFixed(2)}km 差異 >5%`,
+      });
+    }
+    for (let i = 0; i < geo.length; i++) {
+      if (coords.length > 0 && i === 0 && distM(coords[coords.length - 1], geo[0]) < 50) continue;
+      coords.push([Number(geo[i][0].toFixed(5)), Number(geo[i][1].toFixed(5))]);
+      mileageIndex.push(
+        Number((seg.startKm + (seg.endKm - seg.startKm) * (cum[i] / total)).toFixed(3)),
+      );
+    }
+  }
+  if (coords.length < 2) return null;
+  for (let i = 1; i < mileageIndex.length; i++) {
+    if (mileageIndex[i] < mileageIndex[i - 1] - 0.001) {
+      warnings.push({
+        route: routeLabel,
+        msg: `mileageIndex 於第 ${i} 點非單調（${mileageIndex[i - 1]} → ${mileageIndex[i]}）`,
+      });
+      break;
+    }
+  }
+  return { coords, mileageIndex };
+}
+
+/**
+ * 快速公路資料無方向代碼（僅「順向」單一線形），依線形整體走向推斷南下/北上或東行/西行：
+ * 緯度跨度（換算公里）≥ 經度跨度 → 南北向路線，否則東西向。
+ */
+function inferDisplayLabels(coords: Array<[number, number]>): { inc: string; dec: string } {
+  const first = coords[0];
+  const last = coords[coords.length - 1];
+  const lngs = coords.map((c) => c[0]);
+  const lats = coords.map((c) => c[1]);
+  const lngSpanKm = (Math.max(...lngs) - Math.min(...lngs)) * 101; // 台灣緯度下經度 1 度約 101km
+  const latSpanKm = (Math.max(...lats) - Math.min(...lats)) * 111;
+  if (latSpanKm >= lngSpanKm) {
+    return first[1] > last[1] ? { inc: '南下', dec: '北上' } : { inc: '北上', dec: '南下' };
+  }
+  return first[0] < last[0] ? { inc: '東行', dec: '西行' } : { inc: '西行', dec: '東行' };
+}
+
+/** 依「南（東）向/北（西）向出口預告地名」是否存在，換算為 INCREASING/DECREASING/BOTH */
+function expresswayServes(
+  labels: { inc: string; dec: string },
+  hasSE: boolean,
+  hasNW: boolean,
+): string {
+  const seIsIncreasing = labels.inc === '南下' || labels.inc === '東行';
+  if (hasSE && hasNW) return 'BOTH';
+  if (hasSE) return seIsIncreasing ? 'INCREASING' : 'DECREASING';
+  if (hasNW) return seIsIncreasing ? 'DECREASING' : 'INCREASING';
+  return 'BOTH'; // 兩側皆無資料，無法判斷時預設不過濾
+}
+
+interface ExpwyInterchangeRow {
+  公路編號: string;
+  樁號: string;
+  編碼樁號: string;
+  交流道名稱: string;
+  '南（東）向出口預告地名': string | null;
+  '北（西）向出口預告地名': string | null;
+  'WGS84-N': number; // 經度（欄名誤植，實為 lng）
+  'WGS84-E': number; // 緯度（欄名誤植，實為 lat）
 }
 
 async function main() {
@@ -274,6 +445,85 @@ async function main() {
     }
     for (const [name, mileage] of decOnly) {
       addFacility(name, mileage, 'DECREASING');
+    }
+  }
+
+  // ================= 快速公路 =================
+  console.log('\n下載公路總局快速公路資料...');
+  const [expwyInterchanges, expwyRouteZipBuf] = await Promise.all([
+    fetchJsonWithHeaders<ExpwyInterchangeRow[]>(EXPWY_INTERCHANGE_URL),
+    fetchBinary(EXPWY_ROUTE_ZIP_URL),
+  ]);
+  console.log(`快速公路交流道 ${expwyInterchanges.length} 筆`);
+
+  const outerZip = await JSZip.loadAsync(expwyRouteZipBuf);
+  const kmzZipEntryName = Object.keys(outerZip.files).find(
+    (n) => n.endsWith('.zip') && n.includes('KMZ'),
+  );
+  if (!kmzZipEntryName) {
+    warnings.push({ route: 'EXPWY', msg: '省道路線 ZIP 內找不到 KMZ 壓縮檔（資料源檔名可能已變更）' });
+  } else {
+    const kmzZipBuf = await outerZip.file(kmzZipEntryName)!.async('nodebuffer');
+    const kmzZip = await JSZip.loadAsync(kmzZipBuf);
+    const kmzEntries = Object.keys(kmzZip.files);
+
+    for (const [code, meta] of Object.entries(EXPWY_ROAD_MAP)) {
+      const entryName = kmzEntries.find((n) => n.endsWith(`${code}.kmz`));
+      if (!entryName) {
+        warnings.push({ route: meta.id, msg: `KMZ 壓縮檔內找不到 ${code}` });
+        continue;
+      }
+      const innerKmzBuf = await kmzZip.file(entryName)!.async('nodebuffer');
+      const innerKmz = await JSZip.loadAsync(innerKmzBuf);
+      const kmlFile = innerKmz.file('doc.kml');
+      if (!kmlFile) {
+        warnings.push({ route: meta.id, msg: `${code}.kmz 內找不到 doc.kml` });
+        continue;
+      }
+      const kml = await kmlFile.async('string');
+      const segments = parseKmlSegments(kml);
+      if (segments.length === 0) {
+        warnings.push({ route: meta.id, msg: '路段組裝失敗（無有效 Placemark），路線略過' });
+        continue;
+      }
+      const assembled = assembleRoute(segments, meta.id, warnings);
+      if (!assembled) {
+        warnings.push({ route: meta.id, msg: '線形組裝失敗，路線略過' });
+        continue;
+      }
+      const { coords, mileageIndex } = assembled;
+      const displayLabels = inferDisplayLabels(coords);
+      const lngs = coords.map((c) => c[0]);
+      const lats = coords.map((c) => c[1]);
+      routes.push({
+        id: meta.id,
+        name: meta.name,
+        displayLabels,
+        bbox: [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)],
+        coords,
+        mileageIndex,
+      });
+
+      const rows = expwyInterchanges.filter((r) => r['公路編號'] === meta.roadNum);
+      for (const row of rows) {
+        const name = row['交流道名稱'];
+        if (!name) continue;
+        const mileage = Number(row['樁號']);
+        if (!Number.isFinite(mileage)) continue;
+        const hasSE = !!row['南（東）向出口預告地名'];
+        const hasNW = !!row['北（西）向出口預告地名'];
+        const type = /系統/.test(name) ? 'junction' : 'interchange';
+        facilities.push({
+          id: `${meta.id}-${row['編碼樁號']}-${name}`,
+          routeId: meta.id,
+          name,
+          type,
+          mileage: Number(mileage.toFixed(3)),
+          lat: row['WGS84-E'],
+          lng: row['WGS84-N'],
+          serves: expresswayServes(displayLabels, hasSE, hasNW),
+        });
+      }
     }
   }
 
