@@ -8,7 +8,7 @@ import type {
   TrackerState,
   UpcomingFacility,
 } from '../types';
-import { matchPosition, REENTRY_THRESHOLD_M } from './mapMatching';
+import { matchPosition, nearestPosition, REENTRY_THRESHOLD_M } from './mapMatching';
 import {
   carryOverDirectionState,
   effectiveDirection,
@@ -72,6 +72,7 @@ export function initialTrackerState(): TrackerState {
     offMatchStreak: 0,
     manualTopoLock: null,
     dr: null,
+    nearestHighway: null,
   };
 }
 
@@ -144,6 +145,19 @@ function applyTriggerZones(ctx: TrackerContext, state: TrackerState, fix: GeoFix
   return state;
 }
 
+/** OFF_HIGHWAY 待命：找目前離哪條國道最近，附上雙向鄰近設施（無視吸附門檻、與追蹤判定無關） */
+function computeNearestHighway(ctx: TrackerContext, fix: GeoFix): TrackerState['nearestHighway'] {
+  const nearest = nearestPosition(ctx.topo.routes, fix.lat, fix.lng);
+  if (!nearest) return null;
+  const sorted = ctx.facilityIndex.get(nearest.routeId);
+  return {
+    routeId: nearest.routeId,
+    distanceKm: nearest.distanceM / 1000,
+    increasing: upcomingFacilities(sorted, nearest.mileage, 'INCREASING', 0),
+    decreasing: upcomingFacilities(sorted, nearest.mileage, 'DECREASING', 0),
+  };
+}
+
 function handleFix(ctx: TrackerContext, prev: TrackerState, fix: GeoFix): TrackerState {
   let state: TrackerState = { ...prev, lastFix: fix };
 
@@ -189,14 +203,22 @@ function handleFix(ctx: TrackerContext, prev: TrackerState, fix: GeoFix): Tracke
           offMatchStreak: 0,
           upcomingFacilities: [],
           announcedIds: [],
+          nearestHighway: computeNearestHighway(ctx, fix),
           // 保留 currentRouteId/direction 供快速恢復參考（UI 顯示待命）
         };
       }
     }
-    return { ...state, offMatchStreak: streak };
+    // 待命中持續收不到匹配：更新「最近國道」供 UI 參考（僅 OFF_HIGHWAY 才需要，
+    // 其餘 phase 仍在累計 streak 判定中，暫不計算以免無謂運算）
+    return {
+      ...state,
+      offMatchStreak: streak,
+      nearestHighway: state.phase === 'OFF_HIGHWAY' ? computeNearestHighway(ctx, fix) : state.nearestHighway,
+    };
   }
 
   state.offMatchStreak = 0;
+  state.nearestHighway = null;
 
   // 路線切換（含 off-highway 恢復、高架/平面切換、DR 恢復到不同線）
   const routeChanged = match.routeId !== state.currentRouteId;

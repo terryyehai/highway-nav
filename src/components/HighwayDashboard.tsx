@@ -5,14 +5,19 @@ import type { RouteGeometry, TrackerState } from '../types';
 import type { GeoErrorKind, TrackerDiagnostics } from '../hooks/useHighwayTracker';
 import { FacilityCard } from './FacilityCard';
 import { TopoSwitch } from './TopoSwitch';
+import { NearestHighwayPanel } from './NearestHighwayPanel';
 
-function DiagPanel({ diag }: { diag: TrackerDiagnostics }) {
+function DiagPanel({ diag, state }: { diag: TrackerDiagnostics; state: TrackerState }) {
   return (
     <div className="mt-4 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left font-mono text-[11px] leading-relaxed text-white/40">
-      <div>已等待 {diag.elapsedSec}s ／ 權限：{diag.permission}</div>
+      <div>版本 {__BUILD_ID__} ／ 已等待 {diag.elapsedSec}s ／ 權限：{diag.permission}</div>
       <div>
         watchPosition 呼叫 {diag.wpCalls} 次／成功 {diag.fixCount} 次／錯誤 {diag.errorCount} 次／精度：
         {diag.accuracyMode === 'high' ? '高' : '低'}
+      </div>
+      <div>
+        phase={state.phase} ／ 連續失配 {state.offMatchStreak} 次／routeId=
+        {state.currentRouteId ?? '無'}
       </div>
       {diag.lastError && (
         <div>
@@ -27,16 +32,21 @@ function StatusScreen({
   title,
   detail,
   diag,
+  state,
+  children,
 }: {
   title: string;
   detail?: string;
   diag?: TrackerDiagnostics;
+  state?: TrackerState;
+  children?: React.ReactNode;
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
       <div className="text-3xl font-bold text-white">{title}</div>
       {detail && <div className="text-base text-white/60">{detail}</div>}
-      {diag && <DiagPanel diag={diag} />}
+      {children}
+      {diag && state && <DiagPanel diag={diag} state={state} />}
     </div>
   );
 }
@@ -68,6 +78,7 @@ export function HighwayDashboard({
         title="無法取得定位權限"
         detail="請至瀏覽器設定開啟定位權限後重新載入"
         diag={diag}
+        state={state}
       />
     );
   }
@@ -82,16 +93,25 @@ export function HighwayDashboard({
             : '等待 GPS 訊號'
         }
         diag={diag}
+        state={state}
       />
     );
   }
 
   if (state.phase === 'SIGNAL_LOST') {
-    return <StatusScreen title="GPS 訊號遺失" detail="收訊恢復後將自動繼續" diag={diag} />;
+    return (
+      <StatusScreen title="GPS 訊號遺失" detail="收訊恢復後將自動繼續" diag={diag} state={state} />
+    );
   }
 
   if (state.phase === 'OFF_HIGHWAY') {
-    return <StatusScreen title="未在國道上" detail="進入國道後自動開始導航" />;
+    return (
+      <StatusScreen title="未在國道上" detail="進入國道後自動開始導航" diag={diag} state={state}>
+        {state.nearestHighway && (
+          <NearestHighwayPanel info={state.nearestHighway} routes={routes} />
+        )}
+      </StatusScreen>
+    );
   }
 
   // TRACKING

@@ -150,6 +150,35 @@ describe('首次啟動且不在國道附近（室內/離國道甚遠）', () => 
     expect(state.phase).toBe('OFF_HIGHWAY');
     expect(state.upcomingFacilities).toEqual([]);
   });
+
+  it('OFF_HIGHWAY 時附上最近國道與雙向鄰近交流道，回到國道後清空', () => {
+    const ctx = createTrackerContext(topo);
+    let state = initialTrackerState();
+    const base = 1700021000000;
+    for (let i = 0; i < 6; i++) {
+      state = trackerReducer(ctx, state, {
+        type: 'FIX',
+        fix: { lat: 24.15, lng: 120.68, speed: 0, heading: null, accuracy: 20, timestamp: base + i * 1000 },
+      });
+    }
+    expect(state.phase).toBe('OFF_HIGHWAY');
+    expect(state.nearestHighway).not.toBeNull();
+    expect(state.nearestHighway!.distanceKm).toBeGreaterThan(0);
+    expect(
+      state.nearestHighway!.increasing.length + state.nearestHighway!.decreasing.length,
+    ).toBeGreaterThan(0);
+
+    // 開回國道上：nearestHighway 應清空
+    const points = loadFixture('n1-south').points.slice(0, 10);
+    for (const [i, p] of points.entries()) {
+      state = trackerReducer(ctx, state, {
+        type: 'FIX',
+        fix: { lat: p.lat, lng: p.lng, speed: p.speed ?? null, heading: p.heading ?? null, accuracy: 10, timestamp: base + 10000 + i * 1000 },
+      });
+    }
+    expect(state.phase).toBe('TRACKING');
+    expect(state.nearestHighway).toBeNull();
+  });
 });
 
 describe('手動高架/平面切換 10km 封鎖', () => {

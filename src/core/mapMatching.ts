@@ -105,3 +105,29 @@ export function matchPosition(
   }
   return best;
 }
+
+/**
+ * 不設吸附門檻的全域最近點搜尋：用於 OFF_HIGHWAY 待命時找「目前離哪條國道最近」，
+ * 與 matchPosition 的「是否算在國道上」判定完全無關，純粹取全台距離最小者。
+ */
+export function nearestPosition(
+  routes: RouteGeometry[],
+  lat: number,
+  lng: number,
+): MatchResult | null {
+  let best: MatchResult | null = null;
+  for (const route of routes) {
+    // 待命模式候選路線少，直接放寬 bbox buffer 確保全台都能找到最近者
+    if (!inBbox(lat, lng, route.bbox, 300)) continue;
+    const snap = snapToPolyline(lat, lng, route.coords);
+    if (!best || snap.distanceM < best.distanceM) {
+      best = {
+        routeId: route.id,
+        mileage: interpolateMileage(route.mileageIndex, snap.segmentIndex, snap.fraction),
+        distanceM: snap.distanceM,
+        segmentBearing: segmentBearing(route.coords, snap.segmentIndex),
+      };
+    }
+  }
+  return best;
+}

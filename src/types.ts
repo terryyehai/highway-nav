@@ -66,6 +66,17 @@ export interface UpcomingFacility extends Facility {
   etaSeconds: number | null;
 }
 
+/** OFF_HIGHWAY 待命時：離目前位置最近的國道座標點，供顯示雙向鄰近交流道參考 */
+export interface NearestHighwayInfo {
+  routeId: string;
+  /** 目前位置到該國道最近點的直線距離 (km) */
+  distanceKm: number;
+  /** 沿該國道往里程遞增方向最近的設施 */
+  increasing: UpcomingFacility[];
+  /** 沿該國道往里程遞減方向最近的設施 */
+  decreasing: UpcomingFacility[];
+}
+
 /** 由 GeoProvider 抽象出的定位事件（與 GeolocationPosition 解耦，方便測試） */
 export interface GeoFix {
   lat: number;
@@ -112,6 +123,8 @@ export interface TrackerState {
   manualTopoLock: { routeId: string; sinceMileage: number } | null;
   /** Dead Reckoning 內部狀態 */
   dr: DeadReckoningState | null;
+  /** OFF_HIGHWAY 時：離目前位置最近的國道與雙向鄰近交流道；其餘 phase 為 null */
+  nearestHighway: NearestHighwayInfo | null;
 }
 
 export interface DirectionJudgeState {

@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import { execSync } from 'node:child_process';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -7,8 +8,23 @@ import { VitePWA } from 'vite-plugin-pwa';
 // GitHub Pages 部署：base 必須與 repo 名一致（CI 以 VITE_BASE_PATH 注入）
 const base = process.env.VITE_BASE_PATH ?? '/';
 
+// 建置版本標記：CI 用 GITHUB_SHA，本機開發 fallback 讀 git HEAD。
+// 顯示於畫面診斷區塊，實機除錯時一眼確認裝置上跑的是不是最新部署。
+function resolveBuildId(): string {
+  if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA.slice(0, 7);
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return 'dev';
+  }
+}
+const buildId = resolveBuildId();
+
 export default defineConfig({
   base,
+  define: {
+    __BUILD_ID__: JSON.stringify(buildId),
+  },
   plugins: [
     react(),
     tailwindcss(),
