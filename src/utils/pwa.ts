@@ -4,19 +4,17 @@ import { registerSW } from 'virtual:pwa-register';
 
 const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 
-/** 註冊 SW 並每 30 分鐘檢查新版；新版就緒後自動套用並整頁重新載入 */
+/** 註冊 SW 並每 30 分鐘檢查新版；新版就緒後自動套用（skipWaiting + clientsClaim），
+ *  下次開啟 App 即可拿到最新部署，不需使用者手動觸發 */
 export function registerAutoUpdatingServiceWorker(): void {
   if (!('serviceWorker' in navigator)) return;
-  const updateSW = registerSW({
+  registerSW({
     immediate: true,
     onRegisteredSW(_url, registration) {
       if (!registration) return;
       setInterval(() => void registration.update(), UPDATE_CHECK_INTERVAL_MS);
     },
   });
-  // 供下拉刷新手動觸發：立刻檢查並套用新版
-  (window as unknown as { __checkForUpdate?: () => Promise<void> }).__checkForUpdate = () =>
-    updateSW(true);
 }
 
 export function isIOS(): boolean {
