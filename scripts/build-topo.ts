@@ -292,30 +292,44 @@ function assembleRoute(
   return { coords, mileageIndex };
 }
 
-/**
- * 快速公路資料無方向代碼（僅「順向」單一線形），依線形整體走向推斷南下/北上或東行/西行：
- * 緯度跨度（換算公里）≥ 經度跨度 → 南北向路線，否則東西向。
- */
-function inferDisplayLabels(coords: Array<[number, number]>): { inc: string; dec: string } {
-  const first = coords[0];
-  const last = coords[coords.length - 1];
+/** 路線整體走向：緯度跨度（換算公里）≥ 經度跨度 → 南北向，否則東西向 */
+function routeAxis(coords: Array<[number, number]>): 'NS' | 'EW' {
   const lngs = coords.map((c) => c[0]);
   const lats = coords.map((c) => c[1]);
   const lngSpanKm = (Math.max(...lngs) - Math.min(...lngs)) * 101; // 台灣緯度下經度 1 度約 101km
   const latSpanKm = (Math.max(...lats) - Math.min(...lats)) * 111;
-  if (latSpanKm >= lngSpanKm) {
-    return first[1] > last[1] ? { inc: '南下', dec: '北上' } : { inc: '北上', dec: '南下' };
-  }
-  return first[0] < last[0] ? { inc: '東行', dec: '西行' } : { inc: '西行', dec: '東行' };
+  return latSpanKm >= lngSpanKm ? 'NS' : 'EW';
 }
 
-/** 依「南（東）向/北（西）向出口預告地名」是否存在，換算為 INCREASING/DECREASING/BOTH */
-function expresswayServes(
-  labels: { inc: string; dec: string },
-  hasSE: boolean,
-  hasNW: boolean,
-): string {
-  const seIsIncreasing = labels.inc === '南下' || labels.inc === '東行';
+/** 里程遞增方向是否朝南（NS 軸）或朝東（EW 軸）—— 供 serves 判定使用，與顯示文字無關，勿受 isLoop 影響 */
+function isIncreasingTowardSouthOrEast(coords: Array<[number, number]>, axis: 'NS' | 'EW'): boolean {
+  const first = coords[0];
+  const last = coords[coords.length - 1];
+  return axis === 'NS' ? first[1] > last[1] : first[0] < last[0];
+}
+
+/**
+ * 快速公路資料無方向代碼（僅「順向」單一線形），依線形整體走向推斷南下/北上或東行/西行。
+ * 環狀公路（如台74線台中環線）整條路線繞行多個方位，固定套用單一南北/東西標籤會誤導駕駛，
+ * 改以「正向/逆向」表示（isLoop 由 topo-overrides.json 的 loopRouteIds 人工標記，見 README）。
+ */
+function inferDisplayLabels(
+  coords: Array<[number, number]>,
+  isLoop: boolean,
+): { inc: string; dec: string } {
+  if (isLoop) return { inc: '正向', dec: '逆向' };
+  const axis = routeAxis(coords);
+  const incSE = isIncreasingTowardSouthOrEast(coords, axis);
+  if (axis === 'NS') return incSE ? { inc: '南下', dec: '北上' } : { inc: '北上', dec: '南下' };
+  return incSE ? { inc: '東行', dec: '西行' } : { inc: '西行', dec: '東行' };
+}
+
+/**
+ * 依「南（東）向/北（西）向出口預告地名」是否存在，換算為 INCREASING/DECREASING/BOTH。
+ * seIsIncreasing 直接由線形幾何算出（isIncreasingTowardSouthOrEast），不可用 displayLabels 文字
+ * 反推 —— 環狀公路的顯示文字是「正向/逆向」，與此處判定邏輯無關。
+ */
+function expresswayServes(seIsIncreasing: boolean, hasSE: boolean, hasNW: boolean): string {
   if (hasSE && hasNW) return 'BOTH';
   if (hasSE) return seIsIncreasing ? 'INCREASING' : 'DECREASING';
   if (hasNW) return seIsIncreasing ? 'DECREASING' : 'INCREASING';
@@ -446,6 +460,20 @@ interface ExpwyInterchangeRow {
 }
 
 async function main() {
+  // --- 人工修正（先載入：路線組裝階段需要 loopRouteIds） ---
+  let overrides: any = {
+    loopRouteIds: [],
+    removeFacilityIds: [],
+    facilityPatches: [],
+    extraTransitions: [],
+    removeTransitionIds: [],
+    removeCameraIds: [],
+    extraCameras: [],
+  };
+  if (existsSync(OVERRIDES_PATH)) {
+    overrides = { ...overrides, ...JSON.parse(readFileSync(OVERRIDES_PATH, 'utf-8')) };
+  }
+
   console.log('下載高公局開放資料...');
   const [sectionXml, shapeXml] = await Promise.all([fetchText(SECTION_URL), fetchText(SHAPE_URL)]);
   const sections = parseSections(sectionXml);
@@ -635,7 +663,9 @@ async function main() {
         continue;
       }
       const { coords, mileageIndex } = assembled;
-      const displayLabels = inferDisplayLabels(coords);
+      const isLoop = overrides.loopRouteIds.includes(meta.id);
+      const displayLabels = inferDisplayLabels(coords, isLoop);
+      const seIsIncreasing = isIncreasingTowardSouthOrEast(coords, routeAxis(coords));
       const lngs = coords.map((c) => c[0]);
       const lats = coords.map((c) => c[1]);
       routes.push({
@@ -664,7 +694,7 @@ async function main() {
           mileage: Number(mileage.toFixed(3)),
           lat: row['WGS84-E'],
           lng: row['WGS84-N'],
-          serves: expresswayServes(displayLabels, hasSE, hasNW),
+          serves: expresswayServes(seIsIncreasing, hasSE, hasNW),
         });
       }
     }
@@ -717,17 +747,6 @@ async function main() {
   }
 
   // --- 套用人工修正 ---
-  let overrides: any = {
-    removeFacilityIds: [],
-    facilityPatches: [],
-    extraTransitions: [],
-    removeTransitionIds: [],
-    removeCameraIds: [],
-    extraCameras: [],
-  };
-  if (existsSync(OVERRIDES_PATH)) {
-    overrides = { ...overrides, ...JSON.parse(readFileSync(OVERRIDES_PATH, 'utf-8')) };
-  }
   const finalFacilities = (facilities as any[])
     .filter((f) => !overrides.removeFacilityIds.includes(f.id))
     .map((f) => {

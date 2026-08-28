@@ -1,4 +1,5 @@
 {
+  "loopRouteIds": ["E74"],
   "removeFacilityIds": [],
   "facilityPatches": [],
   "extraTransitions": [],
