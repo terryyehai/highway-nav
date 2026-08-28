@@ -10,9 +10,11 @@
     "build:topo": "tsx scripts/build-topo.ts",
     "gen:fixture": "tsx scripts/gen-fixture.ts",
     "audit:text": "tsx scripts/audit-text-lengths.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.3.0",
     "@types/react": "^19.2.18",

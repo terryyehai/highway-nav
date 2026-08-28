@@ -1,7 +1,7 @@
 // DEV 專用畫面情境目錄：涵蓋常見駕駛情境＋依實際圖資算出的極端文字長度案例，
 // 供 ScenarioHarness 直接餵給 HighwayDashboard 渲染（跳過 GPS/reducer），
 // 讓 Playwright 能在不同螢幕寬度下逐一截查有無文字重疊、溢出或被裁切。
-import topoJson from '../data/freeway-topo.json';
+import topoJson from '../data/freeway-topo.json' with { type: 'json' };
 import type {
   Facility,
   FreewayTopo,
