@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "build:topo": "tsx scripts/build-topo.ts",
     "gen:fixture": "tsx scripts/gen-fixture.ts",
+    "audit:text": "tsx scripts/audit-text-lengths.ts",
     "test": "vitest run"
   },
   "devDependencies": {

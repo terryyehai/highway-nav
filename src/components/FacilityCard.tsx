@@ -6,7 +6,7 @@ import { CONGESTION_SPEED_KMH, formatEta } from '../core/eta';
 import { HighwayBadge } from './HighwayBadge';
 import { AutoFitText } from './AutoFitText';
 import { routeColorScheme } from '../utils/routeColor';
-import { FACILITY_TYPE_LABEL, facilityDisplayName } from '../utils/facilityLabel';
+import { facilityTypeLabel, facilityDisplayName } from '../utils/facilityLabel';
 
 export function FacilityCard({
   facility,
@@ -31,23 +31,27 @@ export function FacilityCard({
       className={`flex items-center gap-6 ${c.bg} ${isNearest ? 'py-10' : 'py-7'} px-6`}
     >
       <HighwayBadge routeId={facility.routeId} size={isNearest ? 120 : 76} />
-      <div className="min-w-0 flex-1">
-        <div className={`text-xl font-bold ${c.textSub}`}>{FACILITY_TYPE_LABEL[facility.type]}</div>
+      <div className="min-w-[4.5rem] flex-1">
+        <div className={`text-xl font-bold ${c.textSub}`}>
+          {facilityTypeLabel(facility.name, facility.type)}
+        </div>
         <AutoFitText
           text={facilityDisplayName(facility.name, facility.type)}
           className={`font-bold ${c.text}`}
           maxFontPx={isNearest ? 96 : 60}
         />
       </div>
-      <div className="shrink-0 text-right">
-        <div
-          className={`font-mono font-bold tabular-nums ${c.text} ${
-            isNearest ? 'text-9xl' : 'text-7xl'
-          }`}
+      {/* 名稱優先保留最小可讀寬度（above），數字這邊改為可壓縮：
+          名稱與里程數同時撐爆版面時，寧可讓數字縮小也不要讓交流道名稱被擠到消失 */}
+      <div className="min-w-0 shrink text-right">
+        <AutoFitText
+          maxFontPx={isNearest ? 128 : 84}
+          minFontPx={isNearest ? 40 : 32}
+          className={`font-mono font-bold tabular-nums ${c.text}`}
         >
           {facility.distanceKm.toFixed(1)}
-          <span className={`ml-1 text-3xl font-normal ${c.textSub}`}>km</span>
-        </div>
+          <span className={`ml-1 text-[0.3em] font-normal ${c.textSub}`}>km</span>
+        </AutoFitText>
         <div className={`mt-1 font-mono text-4xl tabular-nums ${c.textSub}`}>
           {formatEta(facility.etaSeconds)}
           {congested && isNearest && (

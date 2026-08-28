@@ -7,6 +7,7 @@ import { FacilityCard } from './FacilityCard';
 import { TopoSwitch } from './TopoSwitch';
 import { NearestHighwayPanel } from './NearestHighwayPanel';
 import { HighwayBadge } from './HighwayBadge';
+import { AutoFitText } from './AutoFitText';
 import { SpeedLimitSign } from './SpeedLimitSign';
 import { CameraAlertBanner } from './CameraAlertBanner';
 import { routeColorScheme } from '../utils/routeColor';
@@ -77,7 +78,7 @@ export function HighwayDashboard({
     return (
       <div className="flex flex-1 flex-col">
         <div className="flex flex-col items-center gap-3 px-6 pb-5 pt-10 text-center">
-          <div className="text-7xl font-bold text-highway-green">未在國道上</div>
+          <div className="text-7xl font-bold text-highway-green">未在導航範圍內</div>
           <div className="text-3xl text-highway-green/60">進入國道後自動開始導航</div>
         </div>
         {state.nearestHighway ? (
@@ -97,33 +98,52 @@ export function HighwayDashboard({
     <div className="flex flex-1 flex-col gap-0.5">
       {/* 頂列：路線徽章 / 方向 / 里程 / 車速——與下方設施卡同色系，視覺上連成一整組告示牌 */}
       <div
-        className={`flex items-center justify-between px-6 py-5 ${
+        className={`flex flex-wrap items-center justify-between gap-y-2 px-6 py-5 ${
           headerColor ? headerColor.bg : 'bg-highway-green'
         }`}
       >
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3 gap-y-2">
           {route && <HighwayBadge routeId={route.id} size={88} />}
-          <span className="text-5xl font-bold text-white">{route?.name ?? '—'}</span>
+          <AutoFitText
+            text={route?.name ?? '—'}
+            className="min-w-0 max-w-[62vw] font-bold text-white"
+            maxFontPx={48}
+            minFontPx={17}
+          />
           {dirLabel ? (
-            <span className="rounded-lg bg-white/20 px-4 py-1.5 text-3xl font-bold text-white">
+            <span
+              data-nowrap-badge="true"
+              className="shrink-0 whitespace-nowrap rounded-lg bg-white/20 px-4 py-1.5 text-3xl font-bold text-white"
+            >
               {dirLabel}
             </span>
           ) : (
-            <span className="rounded-lg border border-white/30 px-4 py-1.5 text-xl text-white/70">
+            <span
+              data-nowrap-badge="true"
+              className="shrink-0 whitespace-nowrap rounded-lg border border-white/30 px-4 py-1.5 text-xl text-white/70"
+            >
               判定方向中
             </span>
           )}
           {state.isDeadReckoning && (
-            <span className="rounded-lg bg-black/25 px-4 py-1.5 text-xl font-bold text-white">
+            <span
+              data-nowrap-badge="true"
+              className="shrink-0 whitespace-nowrap rounded-lg bg-black/25 px-4 py-1.5 text-xl font-bold text-white"
+            >
               隧道推算中
             </span>
           )}
           {state.isOffline && (
-            <span className="rounded-lg bg-black/25 px-4 py-1.5 text-xl text-white">離線</span>
+            <span
+              data-nowrap-badge="true"
+              className="shrink-0 whitespace-nowrap rounded-lg bg-black/25 px-4 py-1.5 text-xl text-white"
+            >
+              離線
+            </span>
           )}
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right font-mono tabular-nums">
+        <div className="flex shrink-0 items-center gap-4">
+          <div className="shrink-0 whitespace-nowrap text-right font-mono tabular-nums">
             <div className="text-5xl font-bold text-white">
               {state.currentMileage.toFixed(1)}
               <span className="text-2xl text-white/60">K</span>

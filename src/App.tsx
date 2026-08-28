@@ -46,8 +46,20 @@ export default function App() {
   const [started, setStarted] = useState(false);
   const [geoProvider, setGeoProvider] = useState<GeoProvider>(nativeGeoProvider);
   const [SimPanel, setSimPanel] = useState<React.ReactNode>(null);
+  const [HarnessNode, setHarnessNode] = useState<React.ReactNode>(null);
   const tts = useHighwayTTS();
   const wakeLock = useWakeLock();
+
+  // DEV 版面稽核用：?harness=<scenario key>（動態 import，不進 production bundle），
+  // 直接灌 TrackerState 給 HighwayDashboard，跳過 GPS/reducer，供 Playwright 逐一截查。
+  const harnessKey = useMemo(() => new URLSearchParams(location.search).get('harness'), []);
+  useEffect(() => {
+    if (!import.meta.env.DEV || !harnessKey) return;
+    void (async () => {
+      const { ScenarioHarness } = await import('./dev/ScenarioHarness');
+      setHarnessNode(<ScenarioHarness scenarioKey={harnessKey} />);
+    })();
+  }, [harnessKey]);
 
   // DEV 模擬器：?sim=<fixture>（動態 import，不進 production bundle）
   useEffect(() => {
@@ -131,6 +143,10 @@ export default function App() {
   }, [tts, wakeLock]);
 
   const routes = useMemo(() => topo.routes, []);
+
+  if (import.meta.env.DEV && harnessKey) {
+    return HarnessNode ?? null;
+  }
 
   if (!started) {
     return (
