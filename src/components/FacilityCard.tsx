@@ -4,13 +4,9 @@ import { motion } from 'framer-motion';
 import type { UpcomingFacility } from '../types';
 import { CONGESTION_SPEED_KMH, formatEta } from '../core/eta';
 import { HighwayBadge } from './HighwayBadge';
+import { AutoFitText } from './AutoFitText';
 import { routeColorScheme } from '../utils/routeColor';
-
-const TYPE_LABEL: Record<UpcomingFacility['type'], string> = {
-  interchange: '交流道',
-  rest_area: '服務區',
-  junction: '系統交流道',
-};
+import { FACILITY_TYPE_LABEL, facilityDisplayName } from '../utils/facilityLabel';
 
 export function FacilityCard({
   facility,
@@ -36,12 +32,12 @@ export function FacilityCard({
     >
       <HighwayBadge routeId={facility.routeId} size={isNearest ? 120 : 76} />
       <div className="min-w-0 flex-1">
-        <div className={`text-xl font-bold ${c.textSub}`}>{TYPE_LABEL[facility.type]}</div>
-        <div
-          className={`truncate font-bold ${c.text} ${isNearest ? 'text-8xl' : 'text-6xl'}`}
-        >
-          {facility.name}
-        </div>
+        <div className={`text-xl font-bold ${c.textSub}`}>{FACILITY_TYPE_LABEL[facility.type]}</div>
+        <AutoFitText
+          text={facilityDisplayName(facility.name, facility.type)}
+          className={`font-bold ${c.text}`}
+          maxFontPx={isNearest ? 96 : 60}
+        />
       </div>
       <div className="shrink-0 text-right">
         <div

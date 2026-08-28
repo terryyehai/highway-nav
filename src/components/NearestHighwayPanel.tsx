@@ -3,13 +3,9 @@
 
 import type { NearestHighwayInfo, RouteGeometry, UpcomingFacility } from '../types';
 import { HighwayBadge } from './HighwayBadge';
+import { AutoFitText } from './AutoFitText';
 import { routeColorScheme } from '../utils/routeColor';
-
-const TYPE_LABEL: Record<UpcomingFacility['type'], string> = {
-  interchange: '交流道',
-  rest_area: '服務區',
-  junction: '系統交流道',
-};
+import { FACILITY_TYPE_LABEL, facilityDisplayName } from '../utils/facilityLabel';
 
 function LocationIcon({ className = 'h-4 w-4' }: { className?: string }) {
   return (
@@ -52,9 +48,14 @@ function DirectionSection({
               className={`flex items-center gap-4 px-6 py-5 ${i > 0 ? `border-t ${c.divider}` : ''}`}
             >
               <HighwayBadge routeId={routeId} size={54} />
-              <div className="min-w-0 flex-1">
-                <span className={`mr-2 text-base ${c.textSub}`}>{TYPE_LABEL[f.type]}</span>
-                <span className={`truncate text-4xl font-bold ${c.text}`}>{f.name}</span>
+              <div className="flex min-w-0 flex-1 items-baseline gap-2">
+                <span className={`shrink-0 text-base ${c.textSub}`}>{FACILITY_TYPE_LABEL[f.type]}</span>
+                <AutoFitText
+                  text={facilityDisplayName(f.name, f.type)}
+                  className={`min-w-0 flex-1 font-bold ${c.text}`}
+                  maxFontPx={36}
+                  minFontPx={18}
+                />
               </div>
               <span className={`shrink-0 font-mono text-4xl tabular-nums ${c.text}`}>
                 {f.distanceKm.toFixed(1)} km
